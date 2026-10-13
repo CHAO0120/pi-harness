@@ -47,11 +47,11 @@ describe("buildPrompt", () => {
 describe("describeContext", () => {
   test("names the note, and the selection when present", () => {
     expect(describeContext(base)).toBe("x.md");
-    expect(describeContext({ ...base, selection: "选中的话" })).toBe("x.md + selection");
+    expect(describeContext({ ...base, selection: "选中的话" })).toBe("x.md + 选中");
   });
 
   test("says so when nothing is attached", () => {
-    expect(describeContext({ ...base, path: null })).toBe("no note");
-    expect(describeContext({ ...base, includePath: false })).toBe("no note");
+    expect(describeContext({ ...base, path: null })).toBe("未识别笔记");
+    expect(describeContext({ ...base, includePath: false })).toBe("未识别笔记");
   });
 });

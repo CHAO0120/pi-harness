@@ -7,4 +7,7 @@ module.exports = {
     "^obsidian$": "<rootDir>/tests/obsidian-mock.ts",
   },
   testMatch: ["<rootDir>/tests/**/*.test.ts"],
+  // The relay caps concurrent sessions, so live tests must not race each other
+  // for a slot.
+  maxWorkers: 1,
 };

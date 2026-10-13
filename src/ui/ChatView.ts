@@ -66,6 +66,13 @@ export class PiHarnessView extends ItemView {
   private streaming = false;
   private abortController: AbortController | null = null;
   private historyLoaded = false;
+  /**
+   * The note the user was looking at before tapping into this panel. Obsidian
+   * reports no active file while a sidebar panel has focus, so "the note" has
+   * to be remembered rather than looked up at send time.
+   */
+  private lastNotePath: string | null = null;
+  private lastNoteLeaf: WorkspaceLeaf | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -129,11 +136,41 @@ export class PiHarnessView extends ItemView {
     this.stopButton.addEventListener("click", () => this.abortController?.abort());
 
     this.refreshChips();
-    this.registerEvent(this.app.workspace.on("file-open", () => this.refreshChips()));
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshChips()));
+    // Remember the note rather than asking for "the active file" later: while
+    // this panel holds focus there is no active file at all.
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (file) this.lastNotePath = file.path;
+        this.refreshChips();
+      }),
+    );
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf?.view instanceof MarkdownView) this.lastNoteLeaf = leaf;
+        this.refreshChips();
+      }),
+    );
     this.setStatus("未连接 · 打开面板会先连一次 relay", true);
+    this.seedRememberedNote();
     debug("view opened", { relay: this.plugin.settings.relayUrl, cwd: this.plugin.settings.cwd, session: this.plugin.settings.sessionId });
     void this.loadHistoryIntoView();
+  }
+
+  /**
+   * Opened before the user touched anything: whatever note the workspace is
+   * showing (or showed most recently) becomes the starting context.
+   */
+  private seedRememberedNote(): void {
+    const active = this.app.workspace.getActiveFile();
+    if (active) {
+      this.lastNotePath = active.path;
+      return;
+    }
+    const leaf = this.app.workspace.getMostRecentLeaf?.();
+    if (leaf?.view instanceof MarkdownView) {
+      this.lastNoteLeaf = leaf;
+      this.lastNotePath = leaf.view.file?.path ?? this.lastNotePath;
+    }
   }
 
   /**
@@ -163,11 +200,33 @@ export class PiHarnessView extends ItemView {
   // ------------- context -------------
 
   private activeFile(): TFile | null {
-    return this.app.workspace.getActiveFile();
+    const direct = this.app.workspace.getActiveFile();
+    if (direct) return direct;
+    const remembered = this.rememberedMarkdownView()?.file;
+    if (remembered) return remembered;
+    if (!this.lastNotePath) return null;
+    const file = this.app.vault.getAbstractFileByPath(this.lastNotePath);
+    return file instanceof TFile ? file : null;
   }
 
+  /** The note's editor even when another leaf (this panel) has focus. */
   private activeEditor() {
-    return this.app.workspace.getActiveViewOfType(MarkdownView)?.editor ?? null;
+    const focused = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (focused) return focused.editor;
+    return this.rememberedMarkdownView()?.editor ?? null;
+  }
+
+  /**
+   * The markdown leaf the user was last in, if Obsidian still has it open.
+   * Membership is checked because a closed file's leaf object lingers.
+   */
+  private rememberedMarkdownView(): MarkdownView | null {
+    const leaf = this.lastNoteLeaf;
+    if (!leaf || !(leaf.view instanceof MarkdownView)) return null;
+    const stillOpen = this.app.workspace
+      .getLeavesOfType("markdown")
+      .some((candidate: WorkspaceLeaf) => candidate === leaf);
+    return stillOpen ? leaf.view : null;
   }
 
   /** What the agent gets told about the user's screen, right now. */
@@ -190,10 +249,11 @@ export class PiHarnessView extends ItemView {
 
   refreshChips(): void {
     if (!this.contextButton) return;
+    const file = this.activeFile();
     const selection = this.activeEditor()?.getSelection() ?? "";
     this.contextLabelEl.setText(
       describeContext({
-        path: this.activeFile()?.path ?? null,
+        path: file?.path ?? null,
         selection,
         body: null,
         includePath: this.plugin.settings.includePath,
@@ -337,7 +397,13 @@ export class PiHarnessView extends ItemView {
 
     try {
       const context = await this.collectContext();
-      debug("context", { path: context.path, selection: Boolean(context.selection), body: Boolean(context.body) });
+      debug("context", {
+        path: context.path,
+        selection: Boolean(context.selection),
+        body: Boolean(context.body),
+        activeFile: this.app.workspace.getActiveFile()?.path ?? null,
+        remembered: this.lastNotePath,
+      });
       this.renderUser(text, context);
       const prompt = buildPrompt(text, context);
       for await (const event of runTurn(prompt, this.plugin.relaySettings(), this.abortController.signal)) {

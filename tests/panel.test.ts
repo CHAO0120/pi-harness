@@ -4,17 +4,18 @@
  *
  *   PI_RELAY_E2E=1 npx jest tests/panel.test.ts
  *
- * This is the layer the unit tests cannot reach: DOM wiring, the composer,
- * streaming render, and the context the panel promises to attach.
+ * The workspace mock deliberately reports *no* active file and *no* active
+ * markdown view, because that is the state once the user taps into a sidebar
+ * panel. The panel must still know which note they came from.
  */
 import { readFileSync } from "node:fs";
 
-import { TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, TFile, WorkspaceLeaf } from "obsidian";
 
-import PiHarnessPlugin from "@/main";
 import { piRelay } from "@/core/session";
-import { DEFAULT_SETTINGS } from "@/ui/SettingsTab";
+import PiHarnessPlugin from "@/main";
 import { PiHarnessView } from "@/ui/ChatView";
+import { DEFAULT_SETTINGS } from "@/ui/SettingsTab";
 
 const enabled = process.env.PI_RELAY_E2E === "1";
 const tokenPath = process.env.PI_RELAY_TOKEN_FILE ?? `${process.env.HOME}/pi-relay/token`;
@@ -25,26 +26,31 @@ interface ViewInternals {
   listEl: HTMLElement;
   statusEl: HTMLElement;
   send(): Promise<void>;
-  streaming: boolean;
 }
 
 (enabled ? describe : describe.skip)("pi-harness panel", () => {
   const debugLines: string[] = [];
   const replaced: string[] = [];
+  const handlers: Record<string, (arg?: never) => void> = {};
 
-  const activeFile = new TFile();
-  activeFile.path = NOTE_PATH;
-  activeFile.name = "AGENTS.md";
+  const noteFile = new TFile();
+  noteFile.path = NOTE_PATH;
+  noteFile.name = "AGENTS.md";
 
-  const editor = {
+  const noteLeaf = new WorkspaceLeaf();
+  const noteView = new MarkdownView(noteLeaf);
+  (noteView as unknown as { editor: unknown }).editor = {
     getSelection: () => "选中的一句话",
-    replaceSelection: (text: string) => replaced.push(text),
+    replaceSelection: (text: string) => {
+      replaced.push(text);
+    },
   };
+  (noteLeaf as unknown as { view: MarkdownView }).view = noteView;
 
   const app = {
     vault: {
       cachedRead: async () => "note body",
-      getAbstractFileByPath: () => null,
+      getAbstractFileByPath: (path: string) => (path === NOTE_PATH ? noteFile : null),
       adapter: {
         append: async (_path: string, line: string) => {
           debugLines.push(line);
@@ -52,16 +58,20 @@ interface ViewInternals {
       },
     },
     workspace: {
-      getActiveFile: () => activeFile,
-      getActiveViewOfType: () => ({ editor }),
-      on: () => ({}),
-      getLeavesOfType: () => [] as unknown[],
+      // Nothing is active: the panel itself holds focus.
+      getActiveFile: () => null,
+      getActiveViewOfType: () => null,
+      on: (name: string, cb: (arg?: never) => void) => {
+        handlers[name] = cb;
+        return {};
+      },
+      getLeavesOfType: (type: string) => (type === "markdown" ? [noteLeaf] : []),
       getLeaf: () => ({ setViewState: async () => undefined, openFile: async () => undefined }),
       revealLeaf: async () => undefined,
+      getMostRecentLeaf: () => noteLeaf,
     },
   };
 
-  let view: PiHarnessView;
   let internals: ViewInternals;
 
   beforeAll(async () => {
@@ -74,12 +84,15 @@ interface ViewInternals {
       sessionName: "panel-test",
     };
 
-    view = new PiHarnessView(new WorkspaceLeaf(), plugin);
+    const view = new PiHarnessView(new WorkspaceLeaf(), plugin);
     (view as unknown as { app: unknown }).app = app;
     await view.onOpen();
     internals = view as unknown as ViewInternals;
-    // onOpen kicks the connect off in the background; give it a moment.
-    await new Promise((r) => setTimeout(r, 3000));
+
+    // The user read a note, then tapped into the panel: the events fire, the
+    // "active" lookups keep returning nothing.
+    handlers["file-open"]?.(noteFile as never);
+    handlers["active-leaf-change"]?.(noteLeaf as never);
   }, 120_000);
 
   afterAll(() => piRelay().disconnect());
@@ -90,32 +103,28 @@ interface ViewInternals {
       if (check()) return;
       await new Promise((r) => setTimeout(r, 250));
     }
-    throw new Error(`timed out waiting; status = ${internals.statusEl.textContent}`);
+    throw new Error(`timed out; status = ${internals.statusEl.textContent}`);
   }
 
-  test("opens a connected panel and renders a streamed answer", async () => {
+  test("knows the note the user came from, and streams an answer about it", async () => {
     await waitFor(() => (internals.statusEl.textContent ?? "").includes("已连接"));
-
-    internals.inputEl.value = "只回复四个字：面板已通";
-    await internals.send();
-
-    expect(internals.listEl.textContent).toContain("面板已通");
     expect(internals.statusEl.textContent).toContain("已连接");
-    expect(debugLines.join("")).toContain("send");
-  }, 180_000);
 
-  test("attaches the active note and can write the answer back", async () => {
     internals.inputEl.value = "只回复我刚才给你的 active note 路径，不要其他内容";
     await internals.send();
 
-    // The answer names the note the composer attached …
+    // Context reached pi: it echoes the path it was told.
     expect(internals.listEl.textContent).toContain("建诚A002");
-    // … and the user's own bubble records what was attached.
+    // And the bubble shows what was attached, note + selection.
     expect(internals.listEl.textContent).toContain(NOTE_PATH);
-
-    const writeBack = internals.listEl.querySelectorAll(".pi-harness-action");
-    expect(writeBack.length).toBeGreaterThan(0);
-    (writeBack[writeBack.length - 2] as HTMLButtonElement).click();
-    expect(replaced[0]).toContain("建诚A002");
+    expect(debugLines.join("")).toContain('"remembered":"10-项目/企业园区/建诚A002/AGENTS.md"');
   }, 180_000);
+
+  test("writes the answer back into that note", async () => {
+    const actions = internals.listEl.querySelectorAll(".pi-harness-action");
+    expect(actions.length).toBeGreaterThan(0);
+    (actions[actions.length - 2] as HTMLButtonElement).click();
+
+    expect(replaced.join("")).toContain("建诚A002");
+  }, 60_000);
 });

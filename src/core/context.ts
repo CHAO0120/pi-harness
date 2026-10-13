@@ -44,8 +44,8 @@ function clip(text: string): string {
 
 /** One-line description of what context the composer will attach, for the chip. */
 export function describeContext(context: NoteContext): string {
-  if (!context.includePath || !context.path) return "no note";
+  if (!context.includePath || !context.path) return "未识别笔记";
   const name = context.path.split("/").pop() ?? context.path;
-  if (context.includeSelection && context.selection?.trim()) return `${name} + selection`;
+  if (context.includeSelection && context.selection?.trim()) return `${name} + 选中`;
   return name;
 }

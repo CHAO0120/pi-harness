@@ -43,11 +43,17 @@ export class TFile {
   extension = "md";
 }
 
+export interface MockEditor {
+  getSelection(): string;
+  replaceSelection(text: string): void;
+}
+
 export class MarkdownView extends ItemView {
-  editor = {
+  editor: MockEditor = {
     getSelection: () => "",
     replaceSelection: (_text: string) => undefined,
   };
+  file: TFile | null = null;
 }
 
 export class WorkspaceLeaf extends Component {}
