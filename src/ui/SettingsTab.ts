@@ -1,5 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 
+import { setDebugEnabled } from "@/core/debug";
 import { refreshStatus, status } from "@/core/session";
 import type PiHarnessPlugin from "@/main";
 
@@ -20,6 +21,8 @@ export interface PiHarnessSettings {
   includePath: boolean;
   includeSelection: boolean;
   includeBody: boolean;
+  /** Append a debug log next to the plugin (used while wiring this up on a phone). */
+  debug: boolean;
 }
 
 export const DEFAULT_SETTINGS: PiHarnessSettings = {
@@ -33,6 +36,7 @@ export const DEFAULT_SETTINGS: PiHarnessSettings = {
   includePath: true,
   includeSelection: true,
   includeBody: false,
+  debug: true,
 };
 
 export class PiHarnessSettingsTab extends PluginSettingTab {
@@ -167,5 +171,18 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
           }),
         );
     }
+
+    containerEl.createEl("h3", { text: "诊断" });
+
+    new Setting(containerEl)
+      .setName("写调试日志")
+      .setDesc("把面板与 relay 的往返写进 .obsidian/plugins/pi-harness/debug.log，排查问题时打开。")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.debug).onChange(async (value) => {
+          this.plugin.settings.debug = value;
+          setDebugEnabled(value);
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 }

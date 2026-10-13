@@ -11,6 +11,7 @@ import {
 } from "obsidian";
 
 import { buildPrompt, describeContext, type NoteContext } from "@/core/context";
+import { debug } from "@/core/debug";
 import { loadHistory, runTurn, toolFilePath, toolSummary, type PiEvent } from "@/core/loop";
 import {
   availableModels,
@@ -51,6 +52,7 @@ interface Answer {
 
 export class PiHarnessView extends ItemView {
   private listEl!: HTMLElement;
+  private statusEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private sendButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
@@ -90,6 +92,7 @@ export class PiHarnessView extends ItemView {
     root.addClass("pi-harness-view");
 
     this.listEl = root.createDiv({ cls: "pi-harness-messages" });
+    this.statusEl = root.createDiv({ cls: "pi-harness-status" });
     const composer = root.createDiv({ cls: "pi-harness-composer" });
 
     this.inputEl = composer.createEl("textarea", {
@@ -128,7 +131,21 @@ export class PiHarnessView extends ItemView {
     this.refreshChips();
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshChips()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshChips()));
+    this.setStatus("未连接 · 打开面板会先连一次 relay", true);
+    debug("view opened", { relay: this.plugin.settings.relayUrl, cwd: this.plugin.settings.cwd, session: this.plugin.settings.sessionId });
     void this.loadHistoryIntoView();
+  }
+
+  /**
+   * One line above the transcript saying whether the relay is reachable and
+   * which model is live. Silent failures were the hardest part of debugging
+   * this on a phone, so the panel says out loud what it is doing.
+   */
+  private setStatus(text: string, warn = false): void {
+    if (!this.statusEl) return;
+    this.statusEl.setText(text);
+    this.statusEl.toggleClass("is-warn", warn);
+    debug("status:", text);
   }
 
   async onClose(): Promise<void> {
@@ -303,24 +320,36 @@ export class PiHarnessView extends ItemView {
   }
 
   private async send(): Promise<void> {
-    if (this.streaming) return;
+    if (this.streaming) {
+      debug("send ignored: still streaming");
+      return;
+    }
     const text = this.inputEl.value.trim();
     if (!text) return;
 
     this.inputEl.value = "";
     this.autoResize();
+    debug("send", { chars: text.length });
 
-    const context = await this.collectContext();
-    this.renderUser(text, context);
+    const answer = this.beginAnswer();
     this.setStreaming(true);
     this.abortController = new AbortController();
-    const answer = this.beginAnswer();
 
     try {
+      const context = await this.collectContext();
+      debug("context", { path: context.path, selection: Boolean(context.selection), body: Boolean(context.body) });
+      this.renderUser(text, context);
       const prompt = buildPrompt(text, context);
       for await (const event of runTurn(prompt, this.plugin.relaySettings(), this.abortController.signal)) {
         this.applyEvent(answer, event);
       }
+      this.setStatus(`已连接 · ${status()?.label ?? "pi"}`);
+    } catch (error) {
+      // Anything thrown here would otherwise be an unhandled rejection and
+      // the panel would simply look dead.
+      debug("send failed", String(error));
+      this.renderError(`发送失败：${describe(error)}`);
+      this.setStatus(`发送失败：${describe(error)}`, true);
     } finally {
       this.finishAnswer(answer);
       this.setStreaming(false);
@@ -347,7 +376,9 @@ export class PiHarnessView extends ItemView {
         this.fillToolCard(answer, event.id, event.output, event.isError);
         break;
       case "error":
+        debug("turn error", event.message);
         this.renderError(event.message);
+        this.setStatus(event.message, true);
         break;
       case "settled":
         break;
@@ -519,7 +550,9 @@ export class PiHarnessView extends ItemView {
     try {
       await refreshStatus(this.plugin.relaySettings());
       this.refreshChips();
+      this.setStatus(`已连接 · ${status()?.label ?? "pi"}`);
       const history = await loadHistory(this.plugin.relaySettings());
+      debug("history loaded", history.length);
       for (const message of history) {
         if (message.role === "user") {
           this.listEl
@@ -538,8 +571,9 @@ export class PiHarnessView extends ItemView {
         }
       }
       this.scrollToEnd();
-    } catch {
-      // A relay that is down is not worth a banner here: sending will report it.
+    } catch (error) {
+      debug("history load failed", String(error));
+      this.setStatus(`连不上 relay：${describe(error)}`, true);
     }
   }
 }

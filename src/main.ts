@@ -1,6 +1,7 @@
 import { Plugin, WorkspaceLeaf } from "obsidian";
 
-import { disconnect, type RelaySettings } from "@/core/session";
+import { debug, initDebug, setDebugSink } from "@/core/debug";
+import { disconnect, isConnected, piRelay, type RelaySettings } from "@/core/session";
 import { PiHarnessView, VIEW_TYPE } from "@/ui/ChatView";
 import { DEFAULT_SETTINGS, type PiHarnessSettings, PiHarnessSettingsTab } from "@/ui/SettingsTab";
 
@@ -9,6 +10,16 @@ export default class PiHarnessPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    initDebug(this.app, this.settings.debug);
+    setDebugSink((message) => {
+      if (!isConnected()) return;
+      try {
+        piRelay().send({ type: "relay_log", message });
+      } catch {
+        // Logging must never be the reason a turn fails.
+      }
+    });
+    debug("plugin loaded", { version: this.manifest.version, relay: this.settings.relayUrl, session: this.settings.sessionId });
     this.registerView(VIEW_TYPE, (leaf: WorkspaceLeaf) => new PiHarnessView(leaf, this));
     this.addRibbonIcon("bot", "Pi Harness", () => void this.activateView());
     this.addCommand({
@@ -20,6 +31,7 @@ export default class PiHarnessPlugin extends Plugin {
   }
 
   onunload(): void {
+    setDebugSink(null);
     disconnect();
   }
 
@@ -47,8 +59,12 @@ export default class PiHarnessPlugin extends Plugin {
     this.settings = { ...DEFAULT_SETTINGS, ...raw?.settings };
     if (!this.settings.relayUrl) this.settings.relayUrl = DEFAULT_SETTINGS.relayUrl;
     if (!this.settings.cwd) this.settings.cwd = DEFAULT_SETTINGS.cwd;
-    // Seeded once and kept: reconnecting with the same id resumes the conversation.
-    if (!this.settings.sessionId) this.settings.sessionId = newSessionId();
+    // Seeded once and *persisted*: a session id generated fresh on every app
+    // start would silently point at a brand-new pi session each time.
+    if (!this.settings.sessionId) {
+      this.settings.sessionId = newSessionId();
+      await this.saveSettings();
+    }
   }
 
   async saveSettings(): Promise<void> {
