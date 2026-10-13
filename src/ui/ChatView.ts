@@ -116,7 +116,7 @@ export class PiHarnessView extends ItemView {
 
     const bar = composer.createDiv({ cls: "pi-harness-bar" });
     const newButton = bar.createEl("button", { cls: "pi-harness-icon", attr: { "aria-label": "新建会话" } });
-    setIcon(newButton, "square-pen");
+    setIconWithFallback(newButton, "square-pen", "✎");
     newButton.addEventListener("click", () => void this.newSession());
 
     this.contextButton = this.chip(bar, (evt) => this.openContextMenu(evt));
@@ -127,11 +127,11 @@ export class PiHarnessView extends ItemView {
     this.effortLabelEl = this.effortButton.querySelector(".pi-harness-chip-label") as HTMLElement;
 
     this.sendButton = bar.createEl("button", { cls: "pi-harness-send", attr: { "aria-label": "发送" } });
-    setIcon(this.sendButton, "arrow-up");
+    setIconWithFallback(this.sendButton, "arrow-up", "↑");
     this.sendButton.addEventListener("click", () => void this.send());
 
     this.stopButton = bar.createEl("button", { cls: "pi-harness-stop", attr: { "aria-label": "停止" } });
-    setIcon(this.stopButton, "square");
+    setIconWithFallback(this.stopButton, "square", "■");
     this.stopButton.hide();
     this.stopButton.addEventListener("click", () => this.abortController?.abort());
 
@@ -192,7 +192,7 @@ export class PiHarnessView extends ItemView {
   private chip(bar: HTMLElement, onClick: (evt: MouseEvent) => void): HTMLButtonElement {
     const button = bar.createEl("button", { cls: "pi-harness-chip" });
     button.createSpan({ cls: "pi-harness-chip-label", text: "…" });
-    setIcon(button.createSpan({ cls: "pi-harness-chip-caret" }), "chevron-down");
+    setIconWithFallback(button.createSpan({ cls: "pi-harness-chip-caret" }), "chevron-down", "⌄");
     button.addEventListener("click", onClick);
     return button;
   }
@@ -391,9 +391,11 @@ export class PiHarnessView extends ItemView {
     this.autoResize();
     debug("send", { chars: text.length });
 
-    const answer = this.beginAnswer();
+    const bubble = this.renderUser(text);
     this.setStreaming(true);
     this.abortController = new AbortController();
+    this.scrollToEnd();
+    let answer: Answer | null = null;
 
     try {
       const context = await this.collectContext();
@@ -404,12 +406,18 @@ export class PiHarnessView extends ItemView {
         activeFile: this.app.workspace.getActiveFile()?.path ?? null,
         remembered: this.lastNotePath,
       });
-      this.renderUser(text, context);
+      this.attachContext(bubble, context);
+      // The answer container must come after the user's bubble: it is created
+      // only once the bubble is on screen.
+      answer = this.beginAnswer();
       const prompt = buildPrompt(text, context);
+      let failed = false;
       for await (const event of runTurn(prompt, this.plugin.relaySettings(), this.abortController.signal)) {
+        if (event.kind === "error") failed = true;
         this.applyEvent(answer, event);
       }
-      this.setStatus(`已连接 · ${status()?.label ?? "pi"}`);
+      // Leaving the error text from the turn in place beats claiming "connected".
+      if (!failed) this.setStatus(`已连接 · ${status()?.label ?? "pi"}`);
     } catch (error) {
       // Anything thrown here would otherwise be an unhandled rejection and
       // the panel would simply look dead.
@@ -417,7 +425,7 @@ export class PiHarnessView extends ItemView {
       this.renderError(`发送失败：${describe(error)}`);
       this.setStatus(`发送失败：${describe(error)}`, true);
     } finally {
-      this.finishAnswer(answer);
+      if (answer) this.finishAnswer(answer);
       this.setStreaming(false);
       this.abortController = null;
       this.refreshChips();
@@ -559,16 +567,20 @@ export class PiHarnessView extends ItemView {
     this.scrollToEnd();
   }
 
-  private renderUser(text: string, context: NoteContext): void {
+  private renderUser(text: string): HTMLElement {
     const bubble = this.listEl.createDiv({ cls: "pi-harness-user" });
     bubble.createDiv({ cls: "pi-harness-user-text", text });
-    if (context.includePath && context.path) {
-      bubble.createDiv({
-        cls: "pi-harness-user-context",
-        text: `📄 ${context.path}${context.selection?.trim() ? "（含选中）" : ""}`,
-      });
-    }
     this.scrollToEnd();
+    return bubble;
+  }
+
+  /** Records what was attached under the user's own message. */
+  private attachContext(bubble: HTMLElement, context: NoteContext): void {
+    if (!context.includePath || !context.path) return;
+    bubble.createDiv({
+      cls: "pi-harness-user-context",
+      text: `📄 ${context.path}${context.selection?.trim() ? "（含选中）" : ""}`,
+    });
   }
 
   private renderError(text: string): void {
@@ -646,4 +658,14 @@ export class PiHarnessView extends ItemView {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * `setIcon` silently draws nothing when the id is not in the running
+ * Obsidian's icon set, which leaves an empty button. Fall back to a plain
+ * glyph so the control is always visible.
+ */
+function setIconWithFallback(el: HTMLElement, icon: string, fallback: string): void {
+  setIcon(el, icon);
+  if (!el.querySelector("svg")) el.setText(fallback);
 }
