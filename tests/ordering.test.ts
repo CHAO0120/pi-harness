@@ -82,6 +82,23 @@ async function openPanel(note: TFile | null): Promise<Internals> {
 const noteFile = new TFile();
 noteFile.path = "20-运维/经验/x.md";
 
+const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+
+/** Android soft keyboards deliver the return key as a line break, no keydown. */
+function fireBeforeInput(el: HTMLTextAreaElement, inputType: string): void {
+  const event = new Event("beforeinput", { bubbles: true, cancelable: true }) as Event & {
+    inputType?: string;
+    isComposing?: boolean;
+  };
+  event.inputType = inputType;
+  event.isComposing = false;
+  el.dispatchEvent(event);
+}
+
+function pressEnter(el: HTMLTextAreaElement, shiftKey = false): void {
+  el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey, bubbles: true, cancelable: true }));
+}
+
 describe("transcript ordering", () => {
   beforeEach(() => {
     events.length = 0;
@@ -123,16 +140,69 @@ describe("transcript ordering", () => {
     expect(text.indexOf("问二")).toBeLessThan(text.indexOf("答二"));
   });
 
-  test("controls stay visible: every button shows an icon or a glyph", async () => {
+  test("controls stay visible: the buttons carry their own glyphs", async () => {
     const view = await openPanel(noteFile);
 
-    for (const button of [view.sendButton, view.stopButton]) {
-      const visible = Boolean(button.querySelector("svg")) || (button.textContent ?? "").trim().length > 0;
-      expect(visible).toBe(true);
-    }
-    // The send button is not the one hidden while idle.
+    // Plain text, not setIcon(): an unavailable icon id draws an empty svg.
+    expect((view.sendButton.textContent ?? "").trim()).toBe("↑");
+    expect((view.stopButton.textContent ?? "").trim()).toBe("■");
     expect(view.sendButton.style.display).not.toBe("none");
     expect(view.stopButton.style.display).toBe("none");
+  });
+
+  test("Enter sends; Shift+Enter keeps the newline behaviour", async () => {
+    events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
+    const view = await openPanel(noteFile);
+
+    view.inputEl.value = "问";
+    pressEnter(view.inputEl);
+    await tick();
+    expect(view.listEl.querySelectorAll(".pi-harness-user")).toHaveLength(1);
+
+    view.inputEl.value = "第二问";
+    pressEnter(view.inputEl, true);
+    await tick();
+    expect(view.listEl.querySelectorAll(".pi-harness-user")).toHaveLength(1);
+    expect(view.inputEl.value).toBe("第二问");
+
+    // The textarea keeps working after a turn, so the keyboard stays open.
+    expect(view.inputEl.disabled).toBe(false);
+  });
+
+  test("the soft keyboard's return key sends as well", async () => {
+    events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
+    const view = await openPanel(noteFile);
+
+    view.inputEl.value = "问";
+    fireBeforeInput(view.inputEl, "insertLineBreak");
+    await tick();
+    expect(view.listEl.querySelectorAll(".pi-harness-user")).toHaveLength(1);
+    expect(view.inputEl.value).toBe("");
+  });
+
+  test("a composing IME does not send half a sentence", async () => {
+    events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
+    const view = await openPanel(noteFile);
+
+    view.inputEl.value = "问";
+    view.inputEl.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }),
+    );
+    await tick();
+    expect(view.listEl.querySelectorAll(".pi-harness-user")).toHaveLength(0);
+    expect(view.inputEl.value).toBe("问");
+  });
+
+  test("Enter while PI is answering does not start a second turn", async () => {
+    const view = await openPanel(noteFile);
+    // No events pushed: runTurn yields nothing and the turn stays "running"
+    // only until it returns, so hold the view in the streaming state directly.
+    (view as unknown as { streaming: boolean }).streaming = true;
+    view.inputEl.value = "插队";
+    pressEnter(view.inputEl);
+    await tick();
+    expect(view.inputEl.value).toBe("插队");
+    expect(view.listEl.querySelectorAll(".pi-harness-user")).toHaveLength(0);
   });
 
   test("the note context is attached to the user's own bubble", async () => {

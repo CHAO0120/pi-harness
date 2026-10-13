@@ -21,6 +21,8 @@ export interface PiHarnessSettings {
   includePath: boolean;
   includeSelection: boolean;
   includeBody: boolean;
+  /** Enter sends the message (Shift+Enter inserts a newline). */
+  enterToSend: boolean;
   /** Append a debug log next to the plugin (used while wiring this up on a phone). */
   debug: boolean;
 }
@@ -36,6 +38,7 @@ export const DEFAULT_SETTINGS: PiHarnessSettings = {
   includePath: true,
   includeSelection: true,
   includeBody: false,
+  enterToSend: true,
   debug: true,
 };
 
@@ -171,6 +174,16 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
           }),
         );
     }
+
+    new Setting(containerEl)
+      .setName("回车发送")
+      .setDesc("按回车直接发送，Shift+回车换行。关掉则回车只换行（手机上某些输入法需要重开面板才生效）。")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.enterToSend).onChange(async (value) => {
+          this.plugin.settings.enterToSend = value;
+          await this.plugin.saveSettings();
+        }),
+      );
 
     containerEl.createEl("h3", { text: "诊断" });
 

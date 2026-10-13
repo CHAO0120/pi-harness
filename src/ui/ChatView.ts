@@ -4,8 +4,6 @@ import {
   MarkdownView,
   Menu,
   Notice,
-  Platform,
-  setIcon,
   TFile,
   WorkspaceLeaf,
 } from "obsidian";
@@ -73,6 +71,8 @@ export class PiHarnessView extends ItemView {
    */
   private lastNotePath: string | null = null;
   private lastNoteLeaf: WorkspaceLeaf | null = null;
+  /** Records whether the Enter that produced a line break had Shift held. */
+  private shiftHeld = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -108,15 +108,32 @@ export class PiHarnessView extends ItemView {
     });
     this.inputEl.addEventListener("input", () => this.autoResize());
     this.inputEl.addEventListener("keydown", (evt) => {
-      if (evt.key === "Enter" && !evt.shiftKey && !Platform.isMobile) {
-        evt.preventDefault();
-        void this.send();
-      }
+      this.shiftHeld = evt.shiftKey;
+      if (evt.key !== "Enter") return;
+      // Never fire while an IME is composing: committing a Chinese candidate
+      // with Enter must not send half a sentence.
+      if (evt.isComposing || evt.keyCode === 229) return;
+      if (evt.shiftKey || evt.altKey) return; // Shift+Enter = newline
+      if (!this.plugin.settings.enterToSend) return;
+      evt.preventDefault();
+      void this.send();
+    });
+    // Android soft keyboards often deliver the return key as a line break
+    // without a keydown, so send from there too.
+    this.inputEl.addEventListener("beforeinput", (evt) => {
+      const input = evt as InputEvent;
+      if (input.inputType !== "insertLineBreak" && input.inputType !== "insertParagraph") return;
+      const shiftHeld = this.shiftHeld;
+      this.shiftHeld = false;
+      if (shiftHeld || input.isComposing) return;
+      if (!this.plugin.settings.enterToSend) return;
+      evt.preventDefault();
+      void this.send();
     });
 
     const bar = composer.createDiv({ cls: "pi-harness-bar" });
     const newButton = bar.createEl("button", { cls: "pi-harness-icon", attr: { "aria-label": "新建会话" } });
-    setIconWithFallback(newButton, "square-pen", "✎");
+    newButton.setText("✎");
     newButton.addEventListener("click", () => void this.newSession());
 
     this.contextButton = this.chip(bar, (evt) => this.openContextMenu(evt));
@@ -127,11 +144,11 @@ export class PiHarnessView extends ItemView {
     this.effortLabelEl = this.effortButton.querySelector(".pi-harness-chip-label") as HTMLElement;
 
     this.sendButton = bar.createEl("button", { cls: "pi-harness-send", attr: { "aria-label": "发送" } });
-    setIconWithFallback(this.sendButton, "arrow-up", "↑");
+    this.sendButton.createSpan({ cls: "pi-harness-send-glyph", text: "↑" });
     this.sendButton.addEventListener("click", () => void this.send());
 
     this.stopButton = bar.createEl("button", { cls: "pi-harness-stop", attr: { "aria-label": "停止" } });
-    setIconWithFallback(this.stopButton, "square", "■");
+    this.stopButton.createSpan({ cls: "pi-harness-send-glyph", text: "■" });
     this.stopButton.hide();
     this.stopButton.addEventListener("click", () => this.abortController?.abort());
 
@@ -192,7 +209,7 @@ export class PiHarnessView extends ItemView {
   private chip(bar: HTMLElement, onClick: (evt: MouseEvent) => void): HTMLButtonElement {
     const button = bar.createEl("button", { cls: "pi-harness-chip" });
     button.createSpan({ cls: "pi-harness-chip-label", text: "…" });
-    setIconWithFallback(button.createSpan({ cls: "pi-harness-chip-caret" }), "chevron-down", "⌄");
+    button.createSpan({ cls: "pi-harness-chip-caret", text: "▾" });
     button.addEventListener("click", onClick);
     return button;
   }
@@ -376,12 +393,13 @@ export class PiHarnessView extends ItemView {
     this.modelButton.disabled = streaming;
     this.effortButton.disabled = streaming;
     this.contextButton.disabled = streaming;
-    this.inputEl.disabled = streaming;
+    // The textarea deliberately stays enabled: disabling it closes the soft
+    // keyboard mid-answer, which is worse than letting the user type on.
   }
 
   private async send(): Promise<void> {
     if (this.streaming) {
-      debug("send ignored: still streaming");
+      new Notice("PI 还在回答，等它说完再发（或点停止）");
       return;
     }
     const text = this.inputEl.value.trim();
@@ -658,14 +676,4 @@ export class PiHarnessView extends ItemView {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * `setIcon` silently draws nothing when the id is not in the running
- * Obsidian's icon set, which leaves an empty button. Fall back to a plain
- * glyph so the control is always visible.
- */
-function setIconWithFallback(el: HTMLElement, icon: string, fallback: string): void {
-  setIcon(el, icon);
-  if (!el.querySelector("svg")) el.setText(fallback);
 }
