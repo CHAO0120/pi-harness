@@ -8,7 +8,7 @@ import {
   WorkspaceLeaf,
 } from "obsidian";
 
-import { buildPrompt, describeContext, type NoteContext } from "@/core/context";
+import { buildPrompt, type NoteContext } from "@/core/context";
 import { debug } from "@/core/debug";
 import { loadHistory, runTurn, toolFilePath, toolSummary, type PiEvent } from "@/core/loop";
 import {
@@ -54,8 +54,6 @@ export class PiHarnessView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private sendButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
-  private contextButton!: HTMLButtonElement;
-  private contextLabelEl!: HTMLElement;
   private modelButton!: HTMLButtonElement;
   private modelLabelEl!: HTMLElement;
   private effortButton!: HTMLButtonElement;
@@ -136,8 +134,6 @@ export class PiHarnessView extends ItemView {
     newButton.setText("✎");
     newButton.addEventListener("click", () => void this.newSession());
 
-    this.contextButton = this.chip(bar, (evt) => this.openContextMenu(evt));
-    this.contextLabelEl = this.contextButton.querySelector(".pi-harness-chip-label") as HTMLElement;
     this.modelButton = this.chip(bar, (evt) => void this.openModelMenu(evt));
     this.modelLabelEl = this.modelButton.querySelector(".pi-harness-chip-label") as HTMLElement;
     this.effortButton = this.chip(bar, (evt) => this.openEffortMenu(evt));
@@ -265,57 +261,11 @@ export class PiHarnessView extends ItemView {
   }
 
   refreshChips(): void {
-    if (!this.contextButton) return;
-    const file = this.activeFile();
-    const selection = this.activeEditor()?.getSelection() ?? "";
-    this.contextLabelEl.setText(
-      describeContext({
-        path: file?.path ?? null,
-        selection,
-        body: null,
-        includePath: this.plugin.settings.includePath,
-        includeSelection: this.plugin.settings.includeSelection,
-      }),
-    );
+    if (!this.modelButton) return;
     const info = status();
     const model = info?.label || this.plugin.settings.model || "pi 默认模型";
     this.modelLabelEl.setText(model.length > 20 ? `${model.slice(0, 20)}…` : model);
     this.effortLabelEl.setText(info?.thinkingLevel ?? this.plugin.settings.thinkingLevel ?? "默认");
-  }
-
-  private openContextMenu(evt: MouseEvent): void {
-    const file = this.activeFile();
-    const hasSelection = Boolean(this.activeEditor()?.getSelection().trim());
-    const menu = new Menu();
-    menu.addItem((item) => item.setTitle("随消息附带的上下文").setIsLabel(true));
-    menu.addItem((item) =>
-      item
-        .setTitle("当前笔记路径")
-        .setChecked(this.plugin.settings.includePath)
-        .onClick(() => void this.toggleContext("includePath")),
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(hasSelection ? "选中文本" : "选中文本（当前没有选中）")
-        .setChecked(this.plugin.settings.includeSelection && hasSelection)
-        .setDisabled(!hasSelection)
-        .onClick(() => void this.toggleContext("includeSelection")),
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle("笔记全文")
-        .setChecked(this.plugin.settings.includeBody)
-        .onClick(() => void this.toggleContext("includeBody")),
-    );
-    menu.addSeparator();
-    menu.addItem((item) => item.setTitle(file ? `当前笔记：${file.path}` : "当前没有打开的笔记").setIsLabel(true));
-    menu.showAtMouseEvent(evt);
-  }
-
-  private async toggleContext(key: "includePath" | "includeSelection" | "includeBody"): Promise<void> {
-    this.plugin.settings[key] = !this.plugin.settings[key];
-    await this.plugin.saveSettings();
-    this.refreshChips();
   }
 
   // ------------- model / thinking -------------
@@ -392,7 +342,6 @@ export class PiHarnessView extends ItemView {
     this.stopButton.toggle(streaming);
     this.modelButton.disabled = streaming;
     this.effortButton.disabled = streaming;
-    this.contextButton.disabled = streaming;
     // The textarea deliberately stays enabled: disabling it closes the soft
     // keyboard mid-answer, which is worse than letting the user type on.
   }

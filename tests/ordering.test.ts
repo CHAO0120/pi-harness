@@ -150,6 +150,16 @@ describe("transcript ordering", () => {
     expect(view.stopButton.style.display).toBe("none");
   });
 
+  test("the toolbar carries no note chip", async () => {
+    const view = await openPanel(noteFile);
+    const bar = view.listEl.parentElement?.querySelector(".pi-harness-bar");
+    const labels = Array.from(bar?.querySelectorAll(".pi-harness-chip-label") ?? []).map((el) => el.textContent);
+
+    // Model + thinking only: the note context is settings-driven now.
+    expect(labels).toHaveLength(2);
+    expect(labels.join()).not.toContain("x.md");
+  });
+
   test("Enter sends; Shift+Enter keeps the newline behaviour", async () => {
     events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);

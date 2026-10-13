@@ -21,7 +21,7 @@ A mobile Obsidian plugin cannot spawn a process, so the agent has to live outsid
 ## What it does
 
 - **Streaming chat panel** in the right sidebar (ribbon icon / command palette), markdown rendered with Obsidian's own renderer.
-- **Active-note awareness** — a chip next to the composer shows what will be attached and toggles three levels: note path (default), selection (default), full note body (off; long notes are clipped).
+- **Active-note awareness** — the note the user came from (and their selection) is attached to every message; what gets attached is configured in settings (note path / selection / full body). The user's own bubble records what was attached.
 - **Write back into the note** — 「写入当前笔记」 replaces the selection if there is one, otherwise inserts at the cursor.
 - **Tool cards** — collapsed by default, expandable, with the arguments, the output, error styling, and an **打开** button when the call names a vault path.
 - **Model / thinking chips** drive pi live (`set_model`, `set_thinking_level`); **new conversation** rotates the pi session id.
