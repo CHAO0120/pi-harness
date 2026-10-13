@@ -1,0 +1,549 @@
+import {
+  ItemView,
+  MarkdownRenderer,
+  MarkdownView,
+  Menu,
+  Notice,
+  Platform,
+  setIcon,
+  TFile,
+  WorkspaceLeaf,
+} from "obsidian";
+
+import { buildPrompt, describeContext, type NoteContext } from "@/core/context";
+import { loadHistory, runTurn, toolFilePath, toolSummary, type PiEvent } from "@/core/loop";
+import {
+  availableModels,
+  refreshStatus,
+  setModel,
+  setThinkingLevel,
+  status,
+  type PiModelInfo,
+} from "@/core/session";
+import type PiHarnessPlugin from "@/main";
+
+export const VIEW_TYPE = "pi-harness-view";
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const MODEL_MENU_LIMIT = 60;
+/** Markdown re-render cadence while a reply streams — 4/s is smooth and cheap. */
+const RENDER_THROTTLE_MS = 250;
+
+/**
+ * One streamed answer. Text segments are kept per position so a reply that
+ * interleaves prose and tool calls still renders in the order it happened.
+ */
+interface Answer {
+  root: HTMLElement;
+  textEl: HTMLElement;
+  /** Text of the segment currently being streamed. */
+  segment: string;
+  /** Everything the answer said, for copy/insert. */
+  full: string;
+  thinkingDetails: HTMLElement;
+  thinkingEl: HTMLElement;
+  thinking: string;
+  toolsEl: HTMLElement;
+  cards: Map<string, HTMLElement>;
+  renderTimer: number | null;
+  actionsEl: HTMLElement;
+}
+
+export class PiHarnessView extends ItemView {
+  private listEl!: HTMLElement;
+  private inputEl!: HTMLTextAreaElement;
+  private sendButton!: HTMLButtonElement;
+  private stopButton!: HTMLButtonElement;
+  private contextButton!: HTMLButtonElement;
+  private contextLabelEl!: HTMLElement;
+  private modelButton!: HTMLButtonElement;
+  private modelLabelEl!: HTMLElement;
+  private effortButton!: HTMLButtonElement;
+  private effortLabelEl!: HTMLElement;
+
+  private streaming = false;
+  private abortController: AbortController | null = null;
+  private historyLoaded = false;
+
+  constructor(
+    leaf: WorkspaceLeaf,
+    private readonly plugin: PiHarnessPlugin,
+  ) {
+    super(leaf);
+  }
+
+  getViewType(): string {
+    return VIEW_TYPE;
+  }
+
+  getDisplayText(): string {
+    return "Pi Harness";
+  }
+
+  getIcon(): string {
+    return "bot";
+  }
+
+  async onOpen(): Promise<void> {
+    const root = this.contentEl;
+    root.empty();
+    root.addClass("pi-harness-view");
+
+    this.listEl = root.createDiv({ cls: "pi-harness-messages" });
+    const composer = root.createDiv({ cls: "pi-harness-composer" });
+
+    this.inputEl = composer.createEl("textarea", {
+      cls: "pi-harness-input",
+      attr: { rows: "1", placeholder: "问 PI（选中文字后提问，它会看到选中内容）" },
+    });
+    this.inputEl.addEventListener("input", () => this.autoResize());
+    this.inputEl.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter" && !evt.shiftKey && !Platform.isMobile) {
+        evt.preventDefault();
+        void this.send();
+      }
+    });
+
+    const bar = composer.createDiv({ cls: "pi-harness-bar" });
+    const newButton = bar.createEl("button", { cls: "pi-harness-icon", attr: { "aria-label": "新建会话" } });
+    setIcon(newButton, "square-pen");
+    newButton.addEventListener("click", () => void this.newSession());
+
+    this.contextButton = this.chip(bar, (evt) => this.openContextMenu(evt));
+    this.contextLabelEl = this.contextButton.querySelector(".pi-harness-chip-label") as HTMLElement;
+    this.modelButton = this.chip(bar, (evt) => void this.openModelMenu(evt));
+    this.modelLabelEl = this.modelButton.querySelector(".pi-harness-chip-label") as HTMLElement;
+    this.effortButton = this.chip(bar, (evt) => this.openEffortMenu(evt));
+    this.effortLabelEl = this.effortButton.querySelector(".pi-harness-chip-label") as HTMLElement;
+
+    this.sendButton = bar.createEl("button", { cls: "pi-harness-send", attr: { "aria-label": "发送" } });
+    setIcon(this.sendButton, "arrow-up");
+    this.sendButton.addEventListener("click", () => void this.send());
+
+    this.stopButton = bar.createEl("button", { cls: "pi-harness-stop", attr: { "aria-label": "停止" } });
+    setIcon(this.stopButton, "square");
+    this.stopButton.hide();
+    this.stopButton.addEventListener("click", () => this.abortController?.abort());
+
+    this.refreshChips();
+    this.registerEvent(this.app.workspace.on("file-open", () => this.refreshChips()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshChips()));
+    void this.loadHistoryIntoView();
+  }
+
+  async onClose(): Promise<void> {
+    this.abortController?.abort();
+  }
+
+  private chip(bar: HTMLElement, onClick: (evt: MouseEvent) => void): HTMLButtonElement {
+    const button = bar.createEl("button", { cls: "pi-harness-chip" });
+    button.createSpan({ cls: "pi-harness-chip-label", text: "…" });
+    setIcon(button.createSpan({ cls: "pi-harness-chip-caret" }), "chevron-down");
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  // ------------- context -------------
+
+  private activeFile(): TFile | null {
+    return this.app.workspace.getActiveFile();
+  }
+
+  private activeEditor() {
+    return this.app.workspace.getActiveViewOfType(MarkdownView)?.editor ?? null;
+  }
+
+  /** What the agent gets told about the user's screen, right now. */
+  private async collectContext(): Promise<NoteContext> {
+    const file = this.activeFile();
+    const { includePath, includeSelection, includeBody } = this.plugin.settings;
+    if (!file || !includePath) {
+      return { path: null, selection: null, body: null, includePath: false, includeSelection: false };
+    }
+    const selection = this.activeEditor()?.getSelection() ?? "";
+    const body = includeBody ? await this.app.vault.cachedRead(file).catch(() => null) : null;
+    return {
+      path: file.path,
+      selection: selection.trim() ? selection : null,
+      body,
+      includePath: true,
+      includeSelection,
+    };
+  }
+
+  refreshChips(): void {
+    if (!this.contextButton) return;
+    const selection = this.activeEditor()?.getSelection() ?? "";
+    this.contextLabelEl.setText(
+      describeContext({
+        path: this.activeFile()?.path ?? null,
+        selection,
+        body: null,
+        includePath: this.plugin.settings.includePath,
+        includeSelection: this.plugin.settings.includeSelection,
+      }),
+    );
+    const info = status();
+    const model = info?.label || this.plugin.settings.model || "pi 默认模型";
+    this.modelLabelEl.setText(model.length > 20 ? `${model.slice(0, 20)}…` : model);
+    this.effortLabelEl.setText(info?.thinkingLevel ?? this.plugin.settings.thinkingLevel ?? "默认");
+  }
+
+  private openContextMenu(evt: MouseEvent): void {
+    const file = this.activeFile();
+    const hasSelection = Boolean(this.activeEditor()?.getSelection().trim());
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle("随消息附带的上下文").setIsLabel(true));
+    menu.addItem((item) =>
+      item
+        .setTitle("当前笔记路径")
+        .setChecked(this.plugin.settings.includePath)
+        .onClick(() => void this.toggleContext("includePath")),
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(hasSelection ? "选中文本" : "选中文本（当前没有选中）")
+        .setChecked(this.plugin.settings.includeSelection && hasSelection)
+        .setDisabled(!hasSelection)
+        .onClick(() => void this.toggleContext("includeSelection")),
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle("笔记全文")
+        .setChecked(this.plugin.settings.includeBody)
+        .onClick(() => void this.toggleContext("includeBody")),
+    );
+    menu.addSeparator();
+    menu.addItem((item) => item.setTitle(file ? `当前笔记：${file.path}` : "当前没有打开的笔记").setIsLabel(true));
+    menu.showAtMouseEvent(evt);
+  }
+
+  private async toggleContext(key: "includePath" | "includeSelection" | "includeBody"): Promise<void> {
+    this.plugin.settings[key] = !this.plugin.settings[key];
+    await this.plugin.saveSettings();
+    this.refreshChips();
+  }
+
+  // ------------- model / thinking -------------
+
+  private async openModelMenu(evt: MouseEvent): Promise<void> {
+    let models: PiModelInfo[];
+    try {
+      models = await availableModels(this.plugin.relaySettings(), true);
+    } catch (error) {
+      new Notice(`读取 pi 模型列表失败：${describe(error)}`);
+      return;
+    }
+    const current = status();
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle("模型").setIsLabel(true));
+    for (const model of models.slice(0, MODEL_MENU_LIMIT)) {
+      const title = model.name && model.name !== model.id ? `${model.name} — ${model.id}` : `${model.provider}/${model.id}`;
+      menu.addItem((item) =>
+        item
+          .setTitle(title)
+          .setChecked(current?.modelId === model.id && current?.provider === model.provider)
+          .onClick(() => void this.applyModel(model)),
+      );
+    }
+    menu.showAtMouseEvent(evt);
+  }
+
+  private async applyModel(model: PiModelInfo): Promise<void> {
+    try {
+      await setModel(this.plugin.relaySettings(), model.provider, model.id);
+      this.refreshChips();
+      new Notice(`已切到 ${model.name || model.id}`);
+    } catch (error) {
+      new Notice(`切换模型失败：${describe(error)}`);
+    }
+  }
+
+  private openEffortMenu(evt: MouseEvent): void {
+    const current = status()?.thinkingLevel ?? this.plugin.settings.thinkingLevel;
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle("思考强度").setIsLabel(true));
+    for (const level of THINKING_LEVELS) {
+      menu.addItem((item) =>
+        item
+          .setTitle(level)
+          .setChecked(level === current)
+          .onClick(() => void this.applyEffort(level)),
+      );
+    }
+    menu.showAtMouseEvent(evt);
+  }
+
+  private async applyEffort(level: string): Promise<void> {
+    this.plugin.settings.thinkingLevel = level;
+    await this.plugin.saveSettings();
+    try {
+      await setThinkingLevel(this.plugin.relaySettings(), level);
+    } catch {
+      // Still the default for the next session even if the live switch failed.
+    }
+    this.refreshChips();
+  }
+
+  // ------------- sending -------------
+
+  private autoResize(): void {
+    this.inputEl.style.height = "auto";
+    this.inputEl.style.height = `${Math.min(this.inputEl.scrollHeight, 150)}px`;
+  }
+
+  private setStreaming(streaming: boolean): void {
+    this.streaming = streaming;
+    this.sendButton.toggle(!streaming);
+    this.stopButton.toggle(streaming);
+    this.modelButton.disabled = streaming;
+    this.effortButton.disabled = streaming;
+    this.contextButton.disabled = streaming;
+    this.inputEl.disabled = streaming;
+  }
+
+  private async send(): Promise<void> {
+    if (this.streaming) return;
+    const text = this.inputEl.value.trim();
+    if (!text) return;
+
+    this.inputEl.value = "";
+    this.autoResize();
+
+    const context = await this.collectContext();
+    this.renderUser(text, context);
+    this.setStreaming(true);
+    this.abortController = new AbortController();
+    const answer = this.beginAnswer();
+
+    try {
+      const prompt = buildPrompt(text, context);
+      for await (const event of runTurn(prompt, this.plugin.relaySettings(), this.abortController.signal)) {
+        this.applyEvent(answer, event);
+      }
+    } finally {
+      this.finishAnswer(answer);
+      this.setStreaming(false);
+      this.abortController = null;
+      this.refreshChips();
+    }
+  }
+
+  private applyEvent(answer: Answer, event: PiEvent): void {
+    switch (event.kind) {
+      case "text":
+        answer.segment += event.text;
+        answer.full += event.text;
+        this.scheduleRender(answer);
+        break;
+      case "thinking":
+        answer.thinking += event.text;
+        this.renderThinking(answer);
+        break;
+      case "tool-start":
+        this.addToolCard(answer, event.id, event.name, event.args);
+        break;
+      case "tool-end":
+        this.fillToolCard(answer, event.id, event.output, event.isError);
+        break;
+      case "error":
+        this.renderError(event.message);
+        break;
+      case "settled":
+        break;
+    }
+  }
+
+  private beginAnswer(): Answer {
+    const root = this.listEl.createDiv({ cls: "pi-harness-answer" });
+    const thinkingDetails = root.createEl("details", { cls: "pi-harness-thinking" });
+    thinkingDetails.createEl("summary", { text: "思考过程" });
+    const thinkingEl = thinkingDetails.createDiv({ cls: "pi-harness-thinking-body" });
+    thinkingDetails.hide();
+    const textEl = root.createDiv({ cls: "pi-harness-markdown" });
+    const toolsEl = root.createDiv({ cls: "pi-harness-tools" });
+    const actionsEl = root.createDiv({ cls: "pi-harness-actions" });
+    this.scrollToEnd();
+    return {
+      root,
+      textEl,
+      segment: "",
+      full: "",
+      thinkingDetails,
+      thinkingEl,
+      thinking: "",
+      toolsEl,
+      cards: new Map(),
+      renderTimer: null,
+      actionsEl,
+    };
+  }
+
+  /** Text after a tool card belongs to a new element so ordering survives. */
+  private startTextSegment(answer: Answer): void {
+    answer.segment = "";
+    answer.textEl = answer.root.createDiv({ cls: "pi-harness-markdown" });
+    answer.root.insertBefore(answer.textEl, answer.toolsEl);
+  }
+
+  private scheduleRender(answer: Answer): void {
+    if (answer.renderTimer !== null) return;
+    answer.renderTimer = window.setTimeout(() => {
+      answer.renderTimer = null;
+      void this.renderSegment(answer);
+    }, RENDER_THROTTLE_MS);
+  }
+
+  private async renderSegment(answer: Answer): Promise<void> {
+    await MarkdownRenderer.render(this.app, answer.segment, answer.textEl, this.activeFile()?.path ?? "", this);
+    this.scrollToEnd();
+  }
+
+  private renderThinking(answer: Answer): void {
+    answer.thinkingEl.setText(answer.thinking);
+    answer.thinkingDetails.show();
+  }
+
+  private addToolCard(answer: Answer, id: string, name: string, args: unknown): void {
+    if (answer.renderTimer !== null) {
+      window.clearTimeout(answer.renderTimer);
+      answer.renderTimer = null;
+      void this.renderSegment(answer);
+    }
+    const card = answer.toolsEl.createEl("details", { cls: "pi-harness-tool" });
+    const summary = card.createEl("summary", { cls: "pi-harness-tool-summary" });
+    summary.createSpan({ cls: "pi-harness-tool-name", text: name });
+    const detail = toolSummary(name, args);
+    if (detail) summary.createSpan({ cls: "pi-harness-tool-detail", text: detail });
+
+    const path = toolFilePath(args);
+    if (path) {
+      const open = card.createEl("button", { cls: "pi-harness-tool-open", text: "打开" });
+      open.addEventListener("click", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        void this.openVaultPath(path);
+      });
+    }
+    card.createEl("pre", { cls: "pi-harness-pre", text: JSON.stringify(args ?? {}, null, 2) });
+    card.createEl("pre", { cls: "pi-harness-pre pi-harness-tool-output", text: "运行中…" });
+    answer.cards.set(id, card);
+    this.startTextSegment(answer);
+    this.scrollToEnd();
+  }
+
+  private fillToolCard(answer: Answer, id: string, output: string, isError: boolean): void {
+    const card = answer.cards.get(id);
+    if (!card) return;
+    card.querySelector<HTMLElement>(".pi-harness-tool-output")?.setText(output);
+    card.toggleClass("is-error", isError);
+    this.scrollToEnd();
+  }
+
+  private finishAnswer(answer: Answer): void {
+    if (answer.renderTimer !== null) {
+      window.clearTimeout(answer.renderTimer);
+      answer.renderTimer = null;
+    }
+    void this.renderSegment(answer);
+    if (!answer.segment.trim()) answer.textEl.detach();
+
+    if (answer.full.trim()) {
+      const insert = answer.actionsEl.createEl("button", { cls: "pi-harness-action", text: "写入当前笔记" });
+      insert.addEventListener("click", () => this.insertIntoNote(answer.full));
+      const copy = answer.actionsEl.createEl("button", { cls: "pi-harness-action", text: "复制" });
+      copy.addEventListener("click", () => {
+        void navigator.clipboard.writeText(answer.full).then(
+          () => new Notice("已复制"),
+          () => new Notice("复制失败"),
+        );
+      });
+    }
+    this.scrollToEnd();
+  }
+
+  private renderUser(text: string, context: NoteContext): void {
+    const bubble = this.listEl.createDiv({ cls: "pi-harness-user" });
+    bubble.createDiv({ cls: "pi-harness-user-text", text });
+    if (context.includePath && context.path) {
+      bubble.createDiv({
+        cls: "pi-harness-user-context",
+        text: `📄 ${context.path}${context.selection?.trim() ? "（含选中）" : ""}`,
+      });
+    }
+    this.scrollToEnd();
+  }
+
+  private renderError(text: string): void {
+    this.listEl.createDiv({ cls: "pi-harness-error" }).setText(text);
+    this.scrollToEnd();
+  }
+
+  /** Answer → note: replaces the selection when there is one, else appends at the cursor. */
+  private insertIntoNote(markdown: string): void {
+    const editor = this.activeEditor();
+    if (!editor) {
+      new Notice("先把光标放到一篇笔记里");
+      return;
+    }
+    const selected = editor.getSelection();
+    editor.replaceSelection(selected ? markdown : `\n${markdown}\n`);
+    new Notice(selected ? "已替换选中内容" : "已插入到当前笔记");
+  }
+
+  private async openVaultPath(path: string): Promise<void> {
+    const normalized = path.replace(/^\.\//, "");
+    const file = this.app.vault.getAbstractFileByPath(normalized);
+    if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
+    else new Notice(`库里找不到 ${normalized}`);
+  }
+
+  private scrollToEnd(): void {
+    this.listEl.scrollTop = this.listEl.scrollHeight;
+  }
+
+  // ------------- session -------------
+
+  private async newSession(): Promise<void> {
+    if (this.streaming) return;
+    await this.plugin.rotateSession();
+    this.listEl.empty();
+    this.historyLoaded = true;
+    this.renderError("已新建 pi 会话。");
+  }
+
+  /** pi holds the conversation; on open we mirror it instead of persisting our own. */
+  private async loadHistoryIntoView(): Promise<void> {
+    if (this.historyLoaded) return;
+    this.historyLoaded = true;
+    try {
+      await refreshStatus(this.plugin.relaySettings());
+      this.refreshChips();
+      const history = await loadHistory(this.plugin.relaySettings());
+      for (const message of history) {
+        if (message.role === "user") {
+          this.listEl
+            .createDiv({ cls: "pi-harness-user" })
+            .createDiv({ cls: "pi-harness-user-text", text: message.text });
+          continue;
+        }
+        const root = this.listEl.createDiv({ cls: "pi-harness-answer" });
+        for (const tool of message.tools) {
+          const card = root.createEl("details", { cls: "pi-harness-tool" });
+          card.createEl("summary", { text: `${tool.name} ${tool.summary}`.trim() });
+        }
+        if (message.text) {
+          const el = root.createDiv({ cls: "pi-harness-markdown" });
+          await MarkdownRenderer.render(this.app, message.text, el, "", this);
+        }
+      }
+      this.scrollToEnd();
+    } catch {
+      // A relay that is down is not worth a banner here: sending will report it.
+    }
+  }
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
