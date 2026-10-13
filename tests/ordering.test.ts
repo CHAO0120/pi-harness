@@ -10,14 +10,38 @@ import { PiHarnessView } from "@/ui/ChatView";
 import { DEFAULT_SETTINGS } from "@/ui/SettingsTab";
 import PiHarnessPlugin from "@/main";
 
-const events: PiEvent[] = [];
-const prompts: string[] = [];
+/**
+ * Transport mock: a queue the test pushes into while a turn is running, so a
+ * turn can be driven slowly enough to exercise streaming re-renders.
+ * (`mockQueue` is named that way because jest hoists this factory.)
+ */
+const mockQueue: PiEvent[] = [];
+const mockPrompts: string[] = [];
+const mockWaiters: (() => void)[] = [];
+
+function pushEvent(...items: PiEvent[]): void {
+  mockQueue.push(...items);
+  for (const wake of mockWaiters.splice(0)) wake();
+}
+
+function resetTransport(): void {
+  mockQueue.length = 0;
+  mockPrompts.length = 0;
+}
 
 jest.mock("@/core/loop", () => ({
   runTurn: (prompt: string) => {
-    prompts.push(prompt);
+    mockPrompts.push(prompt);
     return (async function* () {
-      for (const event of events) yield event;
+      for (;;) {
+        if (mockQueue.length === 0) {
+          await new Promise<void>((resolve) => mockWaiters.push(resolve));
+          continue;
+        }
+        const event = mockQueue.shift()!;
+        yield event;
+        if (event.kind === "settled") return;
+      }
     })();
   },
   loadHistory: async () => [],
@@ -100,13 +124,10 @@ function pressEnter(el: HTMLTextAreaElement, shiftKey = false): void {
 }
 
 describe("transcript ordering", () => {
-  beforeEach(() => {
-    events.length = 0;
-    prompts.length = 0;
-  });
+  beforeEach(() => resetTransport());
 
   test("user message is appended before the answer container", async () => {
-    events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
+    pushEvent({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);
 
     view.inputEl.value = "问";
@@ -119,13 +140,13 @@ describe("transcript ordering", () => {
   });
 
   test("a second turn continues downward", async () => {
-    events.push({ kind: "text", text: "答一" }, { kind: "settled", aborted: false });
+    pushEvent({ kind: "text", text: "答一" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);
     view.inputEl.value = "问一";
     await view.send();
 
-    events.length = 0;
-    events.push({ kind: "text", text: "答二" }, { kind: "settled", aborted: false });
+    resetTransport();
+    pushEvent({ kind: "text", text: "答二" }, { kind: "settled", aborted: false });
     view.inputEl.value = "问二";
     await view.send();
 
@@ -161,7 +182,7 @@ describe("transcript ordering", () => {
   });
 
   test("Enter sends; Shift+Enter keeps the newline behaviour", async () => {
-    events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
+    pushEvent({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);
 
     view.inputEl.value = "问";
@@ -180,7 +201,7 @@ describe("transcript ordering", () => {
   });
 
   test("the soft keyboard's return key sends as well", async () => {
-    events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
+    pushEvent({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);
 
     view.inputEl.value = "问";
@@ -191,7 +212,7 @@ describe("transcript ordering", () => {
   });
 
   test("a composing IME does not send half a sentence", async () => {
-    events.push({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
+    pushEvent({ kind: "text", text: "答" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);
 
     view.inputEl.value = "问";
@@ -205,8 +226,8 @@ describe("transcript ordering", () => {
 
   test("Enter while PI is answering does not start a second turn", async () => {
     const view = await openPanel(noteFile);
-    // No events pushed: runTurn yields nothing and the turn stays "running"
-    // only until it returns, so hold the view in the streaming state directly.
+    // Hold the view in the streaming state directly: the transport mock would
+    // otherwise keep the turn open until it is told to settle.
     (view as unknown as { streaming: boolean }).streaming = true;
     view.inputEl.value = "插队";
     pressEnter(view.inputEl);
@@ -215,8 +236,28 @@ describe("transcript ordering", () => {
     expect(view.listEl.querySelectorAll(".pi-harness-user")).toHaveLength(0);
   });
 
+  test("streaming renders the answer once, not once per delta", async () => {
+    const view = await openPanel(noteFile);
+    view.inputEl.value = "问";
+
+    // Drive a turn slowly enough that the streaming throttle re-renders
+    // mid-answer; the mock's MarkdownRenderer appends, exactly like Obsidian's.
+    const running = view.send();
+    await tick();
+    pushEvent({ kind: "text", text: "第一段" });
+    await new Promise((r) => setTimeout(r, 320));
+    pushEvent({ kind: "text", text: "第二段" });
+    await new Promise((r) => setTimeout(r, 320));
+    pushEvent({ kind: "settled", aborted: false });
+    await running;
+
+    const text = view.listEl.textContent ?? "";
+    expect(text).toContain("第一段第二段");
+    expect(text.indexOf("第一段")).toBe(text.lastIndexOf("第一段"));
+  });
+
   test("the note context is attached to the user's own bubble", async () => {
-    events.push({ kind: "text", text: "ok" }, { kind: "settled", aborted: false });
+    pushEvent({ kind: "text", text: "ok" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);
 
     view.inputEl.value = "问";
@@ -224,11 +265,11 @@ describe("transcript ordering", () => {
 
     const bubble = view.listEl.querySelector(".pi-harness-user");
     expect(bubble?.querySelector(".pi-harness-user-context")?.textContent).toContain("x.md");
-    expect(prompts[0]).toContain("20-运维/经验/x.md");
+    expect(mockPrompts[0]).toContain("20-运维/经验/x.md");
   });
 
   test("a failing turn still leaves the bubble above the error", async () => {
-    events.push({ kind: "error", message: "boom" }, { kind: "settled", aborted: false });
+    pushEvent({ kind: "error", message: "boom" }, { kind: "settled", aborted: false });
     const view = await openPanel(noteFile);
 
     view.inputEl.value = "问";

@@ -472,8 +472,15 @@ export class PiHarnessView extends ItemView {
   }
 
   private async renderSegment(answer: Answer): Promise<void> {
-    await MarkdownRenderer.render(this.app, answer.segment, answer.textEl, this.activeFile()?.path ?? "", this);
+    // MarkdownRenderer.render() appends; without emptying, every throttled
+    // re-render during streaming stacks another copy of the growing answer.
+    answer.textEl.empty();
+    await MarkdownRenderer.render(this.app, answer.segment, answer.textEl, this.activeNotePath(), this);
     this.scrollToEnd();
+  }
+
+  private activeNotePath(): string {
+    return this.activeFile()?.path ?? this.lastNotePath ?? "";
   }
 
   private renderThinking(answer: Answer): void {
@@ -590,7 +597,7 @@ export class PiHarnessView extends ItemView {
     await this.plugin.rotateSession();
     this.listEl.empty();
     this.historyLoaded = true;
-    this.renderError("已新建 pi 会话。");
+    this.listEl.createDiv({ cls: "pi-harness-note", text: "已新建 pi 会话。" });
   }
 
   /** pi holds the conversation; on open we mirror it instead of persisting our own. */
@@ -617,7 +624,7 @@ export class PiHarnessView extends ItemView {
         }
         if (message.text) {
           const el = root.createDiv({ cls: "pi-harness-markdown" });
-          await MarkdownRenderer.render(this.app, message.text, el, "", this);
+          await MarkdownRenderer.render(this.app, message.text, el, this.activeNotePath(), this);
         }
       }
       this.scrollToEnd();
