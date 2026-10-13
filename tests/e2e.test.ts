@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 
 import { buildPrompt } from "@/core/context";
 import { runTurn } from "@/core/loop";
-import { piRelay, type RelaySettings } from "@/core/session";
+import { availableModels, piRelay, refreshStatus, setModel, setThinkingLevel, status, type RelaySettings } from "@/core/session";
 
 const enabled = process.env.PI_RELAY_E2E === "1";
 const tokenPath = process.env.PI_RELAY_TOKEN_FILE ?? `${process.env.HOME}/pi-relay/token`;
@@ -42,6 +42,26 @@ const tokenPath = process.env.PI_RELAY_TOKEN_FILE ?? `${process.env.HOME}/pi-rel
   test("answers a plain question", async () => {
     const text = await say("只回复四个字：面板已通");
     expect(text).toContain("面板已通");
+  }, 180_000);
+
+  test("switching model and thinking level shows up immediately", async () => {
+    const models = await availableModels(settings, true);
+    const current = status()?.modelId;
+    const target = models.find((model) => model.id !== current && model.provider);
+    expect(target).toBeDefined();
+
+    await setModel(settings, target!.provider, target!.id);
+    // The chip reads status(), so this is the user-visible immediacy.
+    expect(status()?.modelId).toBe(target!.id);
+    // …and pi agrees, not just our copy of the state.
+    await refreshStatus({ ...settings, thinkingLevel: "high" });
+    expect(status()?.modelId).toBe(target!.id);
+    expect(status()?.thinkingLevel).toBe("high");
+
+    await setThinkingLevel(settings, "low");
+    expect(status()?.thinkingLevel).toBe("low");
+    await refreshStatus({ ...settings, thinkingLevel: "low" });
+    expect(status()?.thinkingLevel).toBe("low");
   }, 180_000);
 
   test("sees the active note the composer attached", async () => {

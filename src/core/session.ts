@@ -51,15 +51,23 @@ export function status(): PiStatus | null {
   return currentStatus;
 }
 
-/** Mirrors model/thinking out of the record stream so the chips do not poll. */
+/**
+ * Mirrors model/thinking out of the record stream so the chips do not poll.
+ *
+ * The reply shapes differ per command and this is exactly the sort of thing
+ * that silently leaves a chip stale:
+ *   get_state / cycle_model → {"data":{"model":{…},"thinkingLevel":"low"}}
+ *   set_model               → {"data":{…the model itself…}}
+ *   set_thinking_level      → {"success":true}  (no data at all)
+ */
 export function noteRecord(record: PiRecord): void {
   if (record.type === "response") {
     const data = isObject(record.data) ? record.data : null;
-    const model = data && isObject(data.model) ? data.model : null;
-    if (model) currentStatus = { ...(currentStatus ?? blank()), ...readModel(model) };
-    if (data && typeof data.thinkingLevel === "string") {
-      currentStatus = { ...(currentStatus ?? blank()), thinkingLevel: data.thinkingLevel };
-    }
+    if (data && looksLikeModel(data)) applyModel(data);
+    const nested = data && isObject(data.model) ? data.model : null;
+    if (nested && looksLikeModel(nested)) applyModel(nested);
+    const level = data?.thinkingLevel ?? data?.level;
+    if (typeof level === "string") noteThinkingLevel(level);
     return;
   }
   if (record.type === "thinking_level_changed" && typeof record.level === "string") {
@@ -75,9 +83,16 @@ export function noteRecord(record: PiRecord): void {
 }
 
 /** Refreshes status from pi (call once when the view opens). */
-export async function refreshStatus(settings: RelaySettings): Promise<void> {
+export async function refreshStatus(settings: RelaySettings & { thinkingLevel?: string }): Promise<void> {
   await connect(settings);
   noteRecord(await piRelay().request({ type: "get_state" }));
+  // A fresh pi process starts on its own default level, so the level the user
+  // last chose is re-applied here — otherwise it would silently reset after
+  // every sleep/reconnect.
+  const wanted = settings.thinkingLevel;
+  if (wanted && currentStatus && currentStatus.thinkingLevel !== wanted) {
+    await setThinkingLevel(settings, wanted).catch(() => undefined);
+  }
 }
 
 export async function availableModels(settings: RelaySettings, force = false): Promise<PiModelInfo[]> {
@@ -106,6 +121,9 @@ export async function setModel(settings: RelaySettings, provider: string, modelI
   const error = responseError(response);
   if (error) throw new RelayError(error);
   noteRecord(response);
+  // The switch can also clamp the thinking level (per-model level maps), so
+  // read the state back instead of guessing: chips must match what pi will use.
+  noteRecord(await piRelay().request({ type: "get_state" }));
 }
 
 export async function setThinkingLevel(settings: RelaySettings, level: string): Promise<void> {
@@ -113,7 +131,9 @@ export async function setThinkingLevel(settings: RelaySettings, level: string): 
   const response = await piRelay().request({ type: "set_thinking_level", level });
   const error = responseError(response);
   if (error) throw new RelayError(error);
-  noteRecord(response);
+  // pi answers with success but no payload, so the requested level is the
+  // only source of truth available for the chip.
+  noteThinkingLevel(level);
 }
 
 /** Best-effort: nothing is running if the socket is already gone. */
@@ -123,6 +143,20 @@ export function abortTurn(): void {
   } catch {
     // Not connected.
   }
+}
+
+/** Records a thinking level the user just asked for (set_thinking_level says nothing back). */
+export function noteThinkingLevel(level: string): void {
+  currentStatus = { ...(currentStatus ?? blank()), thinkingLevel: level };
+}
+
+/** A model object carries `id` plus either a provider or an api id. */
+function looksLikeModel(value: Record<string, unknown>): boolean {
+  return typeof value.id === "string" && (typeof value.provider === "string" || typeof value.api === "string");
+}
+
+function applyModel(model: Record<string, unknown>): void {
+  currentStatus = { ...(currentStatus ?? blank()), ...readModel(model) };
 }
 
 function readModel(model: Record<string, unknown>): PiStatus {

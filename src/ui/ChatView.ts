@@ -296,6 +296,11 @@ export class PiHarnessView extends ItemView {
   private async applyModel(model: PiModelInfo): Promise<void> {
     try {
       await setModel(this.plugin.relaySettings(), model.provider, model.id);
+      // Remember it as the session's model too: after the phone sleeps the
+      // socket dies and the relay restarts pi, which would otherwise come
+      // back on pi's default model.
+      this.plugin.settings.model = model.id;
+      await this.plugin.saveSettings();
       this.refreshChips();
       new Notice(`已切到 ${model.name || model.id}`);
     } catch (error) {
@@ -593,7 +598,7 @@ export class PiHarnessView extends ItemView {
     if (this.historyLoaded) return;
     this.historyLoaded = true;
     try {
-      await refreshStatus(this.plugin.relaySettings());
+      await refreshStatus({ ...this.plugin.relaySettings(), thinkingLevel: this.plugin.settings.thinkingLevel });
       this.refreshChips();
       this.setStatus(`已连接 · ${status()?.label ?? "pi"}`);
       const history = await loadHistory(this.plugin.relaySettings());
