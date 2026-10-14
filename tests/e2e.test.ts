@@ -16,10 +16,28 @@ import { availableModels, piRelay, refreshStatus, setModel, setThinkingLevel, st
 const enabled = process.env.PI_RELAY_E2E === "1";
 const tokenPath = process.env.PI_RELAY_TOKEN_FILE ?? `${process.env.HOME}/pi-relay/token`;
 
-(enabled ? describe : describe.skip)("pi-harness end to end", () => {
+/**
+ * The token only exists on a machine where the relay runs. CI has none, and a
+ * top-level read would take the whole suite down before the skip could apply.
+ */
+function relayToken(): string | null {
+  try {
+    return readFileSync(tokenPath, "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+const token = relayToken();
+const live = enabled && token !== null;
+if (enabled && !live) {
+  console.warn(`PI_RELAY_E2E=1 but no relay token at ${tokenPath} — skipping the live suite`);
+}
+
+(live ? describe : describe.skip)("pi-harness end to end", () => {
   const settings: RelaySettings = {
     url: process.env.PI_RELAY_URL ?? "ws://127.0.0.1:8346",
-    token: readFileSync(tokenPath, "utf8").trim(),
+    token: token ?? "",
     cwd: process.env.PI_RELAY_CWD ?? "/storage/emulated/0/Obsidian Vault",
     sessionId: `harness-e2e-${Date.now().toString(36)}`,
     sessionName: "harness-e2e",
