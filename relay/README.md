@@ -1,5 +1,7 @@
 # pi-relay
 
+简体中文 | [English](README.en.md)
+
 把**本机 pi**（Termux 侧）通过 WebSocket 暴露给**移动端 Obsidian 插件**（claudian-mobile 的 fork）。
 
 ```

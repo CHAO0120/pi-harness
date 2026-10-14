@@ -11,7 +11,7 @@ Obsidian（本插件）                          Termux
         └────────── 通过 WebSocket 传输 JSONL 记录 ◄──────────────┘
 ```
 
-需要同机运行 `pi-relay` —— 源码见 [`relay/`](relay/)；用 `sh ~/pi-relay/start.sh` 启动（首次安装、包括 `token` 文件的生成，见 [relay/README.md](relay/README.md)）。
+需要同机运行 `pi-relay` —— 源码见 [`relay/`](relay/)；用 `sh ~/pi-relay/start.sh` 启动（首次安装、包括 `token` 文件的生成，见 [relay/README.md](relay/README.md)（中文）/[relay/README.en.md](relay/README.en.md)（英文））。
 
 ## 安装
 

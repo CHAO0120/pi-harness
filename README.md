@@ -11,7 +11,7 @@ Obsidian (this plugin)                     Termux
         └────────────── JSONL records over WebSocket ◄────────────┘
 ```
 
-Requires `pi-relay` running on the same device — sources in [`relay/`](relay/); start it with `sh ~/pi-relay/start.sh` (see [relay/README.md](relay/README.md) for a first-time setup, including the token file).
+Requires `pi-relay` running on the same device — sources in [`relay/`](relay/); start it with `sh ~/pi-relay/start.sh` (see [relay/README.md](relay/README.md) (Chinese) or [relay/README.en.md](relay/README.en.md) for a first-time setup, including the token file).
 
 ## Install
 
