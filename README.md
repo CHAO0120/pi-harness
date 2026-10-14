@@ -1,5 +1,7 @@
 # Pi Harness (Obsidian plugin)
 
+**English** | [简体中文](README.zh.md)
+
 Chat with **your local pi agent** from inside Obsidian — phone included. The agent runs in Termux (where it can spawn processes, use skills, MCP servers and your vault index); this plugin is the panel that talks to it, and the part that knows *which note you are looking at*.
 
 ```
