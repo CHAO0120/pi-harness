@@ -4,7 +4,6 @@
  * that was no longer in use.
  */
 import { noteRecord, noteThinkingLevel, status } from "@/core/session";
-import type { PiRecord } from "@/core/relay";
 
 describe("noteRecord", () => {
   test("set_model replies with the model object itself", () => {
@@ -21,7 +20,7 @@ describe("noteRecord", () => {
         provider: "deepseek",
         baseUrl: "https://api.deepseek.com",
       },
-    } as PiRecord);
+    });
 
     expect(status()?.modelId).toBe("deepseek-flash");
     expect(status()?.provider).toBe("deepseek");
@@ -38,7 +37,7 @@ describe("noteRecord", () => {
         thinkingLevel: "low",
         isStreaming: false,
       },
-    } as PiRecord);
+    });
 
     expect(status()?.modelId).toBe("auto");
     expect(status()?.label).toBe("Auto (时段低价)");
@@ -51,7 +50,7 @@ describe("noteRecord", () => {
   });
 
   test("thinking_level_changed events are mirrored too", () => {
-    noteRecord({ type: "thinking_level_changed", level: "minimal" } as PiRecord);
+    noteRecord({ type: "thinking_level_changed", level: "minimal" });
     expect(status()?.thinkingLevel).toBe("minimal");
   });
 
@@ -59,14 +58,14 @@ describe("noteRecord", () => {
     noteRecord({
       type: "message_start",
       message: { role: "assistant", model: "deepseek-reasoner", provider: "deepseek" },
-    } as PiRecord);
+    });
 
     expect(status()?.label).toBe("deepseek-reasoner");
   });
 
   test("failed responses change nothing", () => {
     const before = status();
-    noteRecord({ type: "response", command: "set_model", success: false, error: "nope" } as PiRecord);
+    noteRecord({ type: "response", command: "set_model", success: false, error: "nope" });
     expect(status()).toEqual(before);
   });
 });

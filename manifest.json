@@ -1,7 +1,7 @@
 {
   "id": "pi-harness",
   "name": "Pi Harness",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "minAppVersion": "1.13.0",
   "description": "Chat with your local pi agent running in Termux on this device, with the note you are reading as context and answers you can write back into it.",
   "author": "CHAO0120",

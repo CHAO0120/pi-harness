@@ -21,7 +21,7 @@ export default class PiHarnessPlugin extends Plugin {
     });
     debug("plugin loaded", { version: this.manifest.version, relay: this.settings.relayUrl, session: this.settings.sessionId });
     this.registerView(VIEW_TYPE, (leaf: WorkspaceLeaf) => new PiHarnessView(leaf, this));
-    this.addRibbonIcon("bot", "Pi Harness", () => void this.activateView());
+    this.addRibbonIcon("bot", this.manifest.name, () => void this.activateView());
     this.addCommand({
       id: "open-panel",
       name: "打开面板",

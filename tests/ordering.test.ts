@@ -106,7 +106,7 @@ async function openPanel(note: TFile | null): Promise<Internals> {
 const noteFile = new TFile();
 noteFile.path = "20-运维/经验/x.md";
 
-const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+const tick = (): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, 20));
 
 /** Android soft keyboards deliver the return key as a line break, no keydown. */
 function fireBeforeInput(el: HTMLTextAreaElement, inputType: string): void {
@@ -245,9 +245,9 @@ describe("transcript ordering", () => {
     const running = view.send();
     await tick();
     pushEvent({ kind: "text", text: "第一段" });
-    await new Promise((r) => setTimeout(r, 320));
+    await new Promise((r) => window.setTimeout(r, 320));
     pushEvent({ kind: "text", text: "第二段" });
-    await new Promise((r) => setTimeout(r, 320));
+    await new Promise((r) => window.setTimeout(r, 320));
     pushEvent({ kind: "settled", aborted: false });
     await running;
 

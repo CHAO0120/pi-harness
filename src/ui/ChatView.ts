@@ -136,7 +136,8 @@ export class PiHarnessView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Pi Harness";
+    // The manifest name, so the panel and the plugin list always agree.
+    return this.plugin.manifest.name;
   }
 
   getIcon(): string {
@@ -163,7 +164,7 @@ export class PiHarnessView extends ItemView {
 
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-harness-input",
-      attr: { rows: "1", placeholder: "问 PI（选中文字后提问，它会看到选中内容）" },
+      attr: { rows: "1", placeholder: "问 pi（选中文字后提问，它会看到选中内容）" },
     });
     this.inputEl.addEventListener("input", () => this.autoResize());
     this.inputEl.addEventListener("keydown", (evt) => {
@@ -418,7 +419,7 @@ export class PiHarnessView extends ItemView {
 
   private async send(): Promise<void> {
     if (this.streaming) {
-      new Notice("PI 还在回答，等它说完再发（或点停止）");
+      new Notice("Pi 还在回答，等它说完再发（或点停止）");
       return;
     }
     const text = this.inputEl.value.trim();

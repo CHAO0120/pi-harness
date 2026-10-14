@@ -101,7 +101,7 @@ interface ViewInternals {
     const deadline = Date.now() + ms;
     while (Date.now() < deadline) {
       if (check()) return;
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => window.setTimeout(r, 250));
     }
     throw new Error(`timed out; status = ${internals.statusEl.textContent}`);
   }

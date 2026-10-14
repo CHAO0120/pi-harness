@@ -50,12 +50,12 @@ function applyOptions(el: El, o: CreateOptions = {}): El {
 }
 
 export function installDomHelpers(): void {
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   const proto = Element.prototype as any;
   const element = Element.prototype as any;
 
   const helpers: Record<string, (...args: any[]) => any> = {
     createEl(this: El, tag: string, o?: CreateOptions, cb?: (el: El) => void): El {
+      // This shim *is* createEl, so it has to go through the DOM directly.
       const el = document.createElement(tag) as El;
       applyOptions(el, o);
       element.appendChild.call(this, el);
@@ -106,10 +106,10 @@ export function installDomHelpers(): void {
       for (const [key, value] of Object.entries(props)) this.style.setProperty(key, value);
     },
     show(this: El): void {
-      this.style.display = "";
+      this.setCssProps({ display: "" });
     },
     hide(this: El): void {
-      this.style.display = "none";
+      this.setCssProps({ display: "none" });
     },
     toggle(this: El, show: boolean): void {
       this.style.display = show ? "" : "none";

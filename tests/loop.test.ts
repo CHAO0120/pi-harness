@@ -2,18 +2,18 @@ import { PiEventMapper, toolFilePath, toolSummary } from "@/core/loop";
 import type { PiRecord } from "@/core/relay";
 
 const textDelta = (delta: string): PiRecord =>
-  ({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta } }) as PiRecord;
+  ({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta } });
 const thinkingDelta = (delta: string): PiRecord =>
-  ({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta } }) as PiRecord;
+  ({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta } });
 const toolStart = (id: string, name: string, args: unknown): PiRecord =>
-  ({ type: "tool_execution_start", toolCallId: id, toolName: name, args }) as PiRecord;
+  ({ type: "tool_execution_start", toolCallId: id, toolName: name, args });
 const toolEnd = (id: string, text: string, isError = false): PiRecord =>
   ({
     type: "tool_execution_end",
     toolCallId: id,
     isError,
     result: { content: [{ type: "text", text }] },
-  }) as PiRecord;
+  });
 
 describe("PiEventMapper", () => {
   test("separates answer text from thinking", () => {
@@ -40,27 +40,27 @@ describe("PiEventMapper", () => {
 
   test("reports settlement with the abort flag", () => {
     const mapper = new PiEventMapper();
-    expect(mapper.push({ type: "agent_settled", aborted: true } as PiRecord)).toEqual([
+    expect(mapper.push({ type: "agent_settled", aborted: true })).toEqual([
       { kind: "settled", aborted: true },
     ]);
   });
 
   test("turns failed commands and relay failures into errors", () => {
     const mapper = new PiEventMapper();
-    expect(mapper.push({ type: "response", command: "prompt", success: false, error: "no model" } as PiRecord)).toEqual([
+    expect(mapper.push({ type: "response", command: "prompt", success: false, error: "no model" })).toEqual([
       { kind: "error", message: "no model" },
     ]);
-    expect(mapper.push({ type: "relay", event: "disconnected" } as PiRecord)[0].kind).toBe("error");
-    expect(mapper.push({ type: "relay", event: "bad_cwd", requested: "/etc" } as PiRecord)[0]).toMatchObject({
+    expect(mapper.push({ type: "relay", event: "disconnected" })[0].kind).toBe("error");
+    expect(mapper.push({ type: "relay", event: "bad_cwd", requested: "/etc" })[0]).toMatchObject({
       message: expect.stringContaining("/etc"),
     });
   });
 
   test("ignores records the panel has nothing to show for", () => {
     const mapper = new PiEventMapper();
-    expect(mapper.push({ type: "agent_start" } as PiRecord)).toEqual([]);
-    expect(mapper.push({ type: "queue_update" } as PiRecord)).toEqual([]);
-    expect(mapper.push({ type: "response", success: true, command: "get_state" } as PiRecord)).toEqual([]);
+    expect(mapper.push({ type: "agent_start" })).toEqual([]);
+    expect(mapper.push({ type: "queue_update" })).toEqual([]);
+    expect(mapper.push({ type: "response", success: true, command: "get_state" })).toEqual([]);
   });
 
   test("notes images in a tool result instead of dropping them silently", () => {
@@ -70,7 +70,7 @@ describe("PiEventMapper", () => {
       type: "tool_execution_end",
       toolCallId: "c1",
       result: { content: [{ type: "image" }, { type: "text", text: "ok" }] },
-    } as PiRecord);
+    });
     expect(event).toMatchObject({ kind: "tool-end", output: "ok\n[1 image(s)]" });
   });
 });

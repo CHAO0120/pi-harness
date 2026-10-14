@@ -19,6 +19,8 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+      # The community directory lints against these same rules.
+      - run: npm run lint
       - run: npx jest
       # Catches a build that only works on the machine it was written on.
       - run: npm run build
