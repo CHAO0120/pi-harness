@@ -79,3 +79,22 @@ The e2e suite's second case is the load-bearing one: it feeds a `buildPrompt` pr
 The relay that actually runs lives in `~/pi-relay`; `relay/` is a mirror, so after touching the relay run `sh scripts/sync-relay.sh`, review the diff, and commit it. The script also names any file it does not know about rather than dropping it silently.
 
 Neither half is useful alone: the plugin cannot spawn a process on mobile, and the relay has no UI. Install the relay in Termux, then load the built plugin into the vault.
+
+## Requirements
+
+- **Termux with pi** installed (`pi` on `PATH`) — the agent runs there, where it can spawn processes and use skills, MCP servers and your vault index.
+- **The relay running**: `~/pi-relay` from this repo, started with `sh ~/pi-relay/start.sh`.
+- Obsidian 1.5.0 or later. Mobile is supported; see [relay/README.en.md](relay/README.en.md) for the Termux side.
+
+## Disclosures
+
+Required by the Obsidian community directory, and worth knowing before you install:
+
+- **Network use.** The plugin opens a WebSocket to the relay address in its settings — `ws://127.0.0.1:8346` by default, i.e. your own device. It contacts no external service, and sends nothing anywhere else.
+- **Access outside the vault.** Files you pick from the phone with 📎 are copied **into** the vault (`50-附件/pi-harness上传/` by default) so the agent can read them; the plugin itself touches no path outside the vault. The relay and the agent, however, run outside Obsidian with the working directory you configure, and the agent may read and write files there when you ask it to.
+- **No telemetry, no self-update, no ads.** The plugin contains no analytics and never updates itself or its dependencies. `data.json` holds your settings, including the relay token in plain text.
+- **The agent is not sandboxed by the plugin.** Anything you ask pi to do, it does with the privileges of your Termux user.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
