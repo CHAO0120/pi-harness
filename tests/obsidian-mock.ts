@@ -176,6 +176,21 @@ export class MenuItem {
 
 export const notices: string[] = [];
 
+export class App {}
+
+export class FuzzySuggestModal<T> {
+  constructor(readonly app: App) {}
+  setPlaceholder(_text: string): void {}
+  open(): void {}
+  getItems(): T[] {
+    return [];
+  }
+  getItemText(_item: T): string {
+    return "";
+  }
+  onChooseItem(_item: T): void {}
+}
+
 export class Notice {
   constructor(message: string) {
     notices.push(message);

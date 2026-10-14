@@ -1,7 +1,7 @@
 {
   "id": "pi-harness",
   "name": "Pi Harness",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.5.0",
   "description": "Chat with your local pi agent (Termux relay) inside Obsidian. Knows the note you are reading and writes answers back into it.",
   "author": "local",

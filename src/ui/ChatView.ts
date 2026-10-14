@@ -1,4 +1,6 @@
 import {
+  App,
+  FuzzySuggestModal,
   ItemView,
   MarkdownRenderer,
   MarkdownView,
@@ -10,7 +12,7 @@ import {
 
 import { buildPrompt, type NoteContext } from "@/core/context";
 import { debug } from "@/core/debug";
-import { loadHistory, runTurn, toolFilePath, toolSummary, type PiEvent } from "@/core/loop";
+import { loadHistory, runTurn, toolFilePath, toolSummary, type PiEvent, type PiImage } from "@/core/loop";
 import {
   availableModels,
   refreshStatus,
@@ -27,6 +29,52 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "ma
 const MODEL_MENU_LIMIT = 60;
 /** Markdown re-render cadence while a reply streams — 4/s is smooth and cheap. */
 const RENDER_THROTTLE_MS = 250;
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+/** Device files land here so pi can read them by path from its shared-storage cwd. */
+const UPLOAD_DIR = "50-附件/pi-harness上传";
+
+/** A staged attachment in the composer, sent with the next message. */
+interface Attachment {
+  kind: "image" | "file";
+  name: string;
+  /** base64 payload for images (travels through pi's `images` field). */
+  data?: string;
+  mimeType?: string;
+  /** Vault-relative path for files the agent reads itself. */
+  path?: string;
+}
+
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+class VaultFilePicker extends FuzzySuggestModal<TFile> {
+  constructor(
+    app: App,
+    private readonly onPick: (file: TFile) => void,
+  ) {
+    super(app);
+    this.setPlaceholder("选择库内文件…");
+  }
+
+  getItems(): TFile[] {
+    return this.app.vault.getFiles();
+  }
+
+  getItemText(item: TFile): string {
+    return item.path;
+  }
+
+  onChooseItem(item: TFile): void {
+    this.onPick(item);
+  }
+}
 
 /**
  * One streamed answer. Text segments are kept per position so a reply that
@@ -54,6 +102,10 @@ export class PiHarnessView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private sendButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
+  private attachmentsEl!: HTMLElement;
+  private fileInput!: HTMLInputElement;
+  /** Staged for the next message; cleared when it is sent. */
+  private pending: Attachment[] = [];
   private modelButton!: HTMLButtonElement;
   private modelLabelEl!: HTMLElement;
   private effortButton!: HTMLButtonElement;
@@ -100,6 +152,15 @@ export class PiHarnessView extends ItemView {
     this.statusEl = root.createDiv({ cls: "pi-harness-status" });
     const composer = root.createDiv({ cls: "pi-harness-composer" });
 
+    this.attachmentsEl = composer.createDiv({ cls: "pi-harness-attachments" });
+    this.attachmentsEl.hide();
+    // A real <input type=file> is the only way to reach the Android file picker.
+    this.fileInput = composer.createEl("input", {
+      cls: "pi-harness-file-input",
+      attr: { type: "file", multiple: "multiple" },
+    });
+    this.fileInput.addEventListener("change", () => void this.ingestDeviceFiles());
+
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-harness-input",
       attr: { rows: "1", placeholder: "问 PI（选中文字后提问，它会看到选中内容）" },
@@ -133,6 +194,10 @@ export class PiHarnessView extends ItemView {
     const newButton = bar.createEl("button", { cls: "pi-harness-icon", attr: { "aria-label": "新建会话" } });
     newButton.setText("✎");
     newButton.addEventListener("click", () => void this.newSession());
+
+    const attachButton = bar.createEl("button", { cls: "pi-harness-icon", attr: { "aria-label": "附件" } });
+    attachButton.setText("📎");
+    attachButton.addEventListener("click", (evt) => this.openAttachMenu(evt));
 
     this.modelButton = this.chip(bar, (evt) => void this.openModelMenu(evt));
     this.modelLabelEl = this.modelButton.querySelector(".pi-harness-chip-label") as HTMLElement;
@@ -357,13 +422,26 @@ export class PiHarnessView extends ItemView {
       return;
     }
     const text = this.inputEl.value.trim();
-    if (!text) return;
+    const attachments = this.pending;
+    if (!text && attachments.length === 0) return;
 
     this.inputEl.value = "";
+    this.pending = [];
+    this.renderAttachments();
     this.autoResize();
-    debug("send", { chars: text.length });
 
-    const bubble = this.renderUser(text);
+    const message = text || "请看附件";
+    const files = attachments.filter((item) => item.kind === "file");
+    const fullText = files.length > 0
+      ? `${message}\n\n[attachments]\n${files.map((item) => `- ${item.path}`).join("\n")}\n[/attachments]`
+      : message;
+    const images: PiImage[] = attachments
+      .filter((item) => item.kind === "image" && item.data)
+      .map((item) => ({ data: item.data as string, mimeType: item.mimeType ?? "image/png" }));
+    debug("send", { chars: message.length, attachments: attachments.length, images: images.length });
+
+    const bubble = this.renderUser(message);
+    this.attachUserAttachments(bubble, attachments);
     this.setStreaming(true);
     this.abortController = new AbortController();
     this.scrollToEnd();
@@ -382,9 +460,9 @@ export class PiHarnessView extends ItemView {
       // The answer container must come after the user's bubble: it is created
       // only once the bubble is on screen.
       answer = this.beginAnswer();
-      const prompt = buildPrompt(text, context);
+      const prompt = buildPrompt(fullText, context);
       let failed = false;
-      for await (const event of runTurn(prompt, this.plugin.relaySettings(), this.abortController.signal)) {
+      for await (const event of runTurn(prompt, this.plugin.relaySettings(), this.abortController.signal, images)) {
         if (event.kind === "error") failed = true;
         this.applyEvent(answer, event);
       }
@@ -559,6 +637,85 @@ export class PiHarnessView extends ItemView {
     bubble.createDiv({
       cls: "pi-harness-user-context",
       text: `📄 ${context.path}${context.selection?.trim() ? "（含选中）" : ""}`,
+    });
+  }
+
+  private attachUserAttachments(bubble: HTMLElement, attachments: Attachment[]): void {
+    if (attachments.length === 0) return;
+    bubble.createDiv({
+      cls: "pi-harness-user-context",
+      text: attachments.map((item) => `${item.kind === "image" ? "🖼" : "📄"} ${item.name}`).join("　"),
+    });
+  }
+
+  // ------------- attachments -------------
+
+  private openAttachMenu(evt: MouseEvent): void {
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle("从手机选择…").onClick(() => this.fileInput.click()));
+    menu.addItem((item) =>
+      item.setTitle("从库中选择…").onClick(() => {
+        new VaultFilePicker(this.app, (file) => void this.addVaultFile(file)).open();
+      }),
+    );
+    menu.showAtMouseEvent(evt);
+  }
+
+  private async ingestDeviceFiles(): Promise<void> {
+    const files = Array.from(this.fileInput.files ?? []);
+    this.fileInput.value = ""; // so re-picking the same file still fires change
+    for (const file of files) {
+      const buffer = await file.arrayBuffer();
+      if (file.type.startsWith("image/")) {
+        if (file.size > MAX_IMAGE_BYTES) {
+          new Notice(`图片过大已跳过：${file.name}`);
+          continue;
+        }
+        this.pending.push({ kind: "image", name: file.name, data: toBase64(buffer), mimeType: file.type });
+      } else {
+        const path = await this.saveToVault(file.name, buffer);
+        this.pending.push({ kind: "file", name: file.name, path });
+      }
+    }
+    this.renderAttachments();
+  }
+
+  private async addVaultFile(file: TFile): Promise<void> {
+    if (/^(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.extension)) {
+      const data = toBase64(await this.app.vault.readBinary(file));
+      const subtype = file.extension === "svg" ? "svg+xml" : file.extension === "jpg" ? "jpeg" : file.extension;
+      this.pending.push({ kind: "image", name: file.name, data, mimeType: `image/${subtype}` });
+    } else {
+      this.pending.push({ kind: "file", name: file.name, path: file.path });
+    }
+    this.renderAttachments();
+  }
+
+  /** A device file has no path pi can reach; keep it in the vault and reference that. */
+  private async saveToVault(name: string, buffer: ArrayBuffer): Promise<string> {
+    if (!this.app.vault.getAbstractFileByPath(UPLOAD_DIR)) {
+      await this.app.vault.createFolder(UPLOAD_DIR).catch(() => {});
+    }
+    let path = `${UPLOAD_DIR}/${name}`;
+    for (let i = 1; this.app.vault.getAbstractFileByPath(path); i += 1) {
+      path = `${UPLOAD_DIR}/${name.replace(/(\.[^.]*)?$/, (ext) => `-${i}${ext}`)}`;
+    }
+    await this.app.vault.createBinary(path, buffer);
+    return path;
+  }
+
+  private renderAttachments(): void {
+    this.attachmentsEl.empty();
+    this.attachmentsEl.toggle(this.pending.length > 0);
+    this.pending.forEach((item, index) => {
+      const chip = this.attachmentsEl.createDiv({ cls: "pi-harness-attachment" });
+      chip.createSpan({ text: `${item.kind === "image" ? "🖼" : "📄"} ${item.name}` });
+      const remove = chip.createEl("button", { attr: { "aria-label": "移除" } });
+      remove.setText("×");
+      remove.addEventListener("click", () => {
+        this.pending.splice(index, 1);
+        this.renderAttachments();
+      });
     });
   }
 

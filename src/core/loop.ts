@@ -103,6 +103,12 @@ export class PiEventMapper {
   }
 }
 
+/** One image for the `images` field of a pi prompt record (rpc-commands.md). */
+export interface PiImage {
+  data: string;
+  mimeType: string;
+}
+
 /**
  * Runs one turn. `piPrompt` is the already-built prompt (context preamble
  * included), so the panel decides what the agent gets to see.
@@ -111,13 +117,17 @@ export async function* runTurn(
   piPrompt: string,
   settings: RelaySettings,
   signal: AbortSignal,
+  images?: PiImage[],
 ): AsyncGenerator<PiEvent> {
   const mapper = new PiEventMapper();
   let settled = false;
 
   try {
     await connect(settings);
-    const accepted = await piRelay().request({ type: "prompt", message: piPrompt });
+    const attached = images && images.length > 0
+      ? { images: images.map((img) => ({ type: "image", data: img.data, mimeType: img.mimeType })) }
+      : {};
+    const accepted = await piRelay().request({ type: "prompt", message: piPrompt, ...attached });
     const error = responseError(accepted);
     if (error) {
       yield { kind: "error", message: error };
