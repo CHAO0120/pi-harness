@@ -71,7 +71,7 @@ e2e 套件里的第二个用例是承重的那一个：它喂入 `buildPrompt` �
 
 - **Termux 且已安装 pi**（`pi` 在 `PATH` 上）—— agent 跑在那边，只有那里能 spawn 进程、用 skills、MCP 服务器和你的笔记库索引。
 - **中继在运行**：本仓库的 `~/pi-relay`，用 `sh ~/pi-relay/start.sh` 启动。
-- Obsidian 1.5.0 及以上。支持移动端；Termux 侧细节见 [relay/README.md](relay/README.md)。
+- Obsidian 1.7.2 及以上。支持移动端；Termux 侧细节见 [relay/README.md](relay/README.md)。
 
 ## 披露事项
 

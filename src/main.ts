@@ -24,7 +24,7 @@ export default class PiHarnessPlugin extends Plugin {
     this.addRibbonIcon("bot", "Pi Harness", () => void this.activateView());
     this.addCommand({
       id: "open-panel",
-      name: "打开 Pi Harness 面板",
+      name: "打开面板",
       callback: () => void this.activateView(),
     });
     this.addSettingTab(new PiHarnessSettingsTab(this.app, this));

@@ -55,7 +55,7 @@ export class PiRelay {
       let opened = false;
       const socket = new WebSocket(url);
       this.socket = socket;
-      const timer = setTimeout(() => {
+      const timer = window.setTimeout(() => {
         if (opened) return;
         this.disconnect();
         reject(new RelayError("relay connect timeout", url));
@@ -63,18 +63,18 @@ export class PiRelay {
 
       socket.onopen = () => {
         opened = true;
-        clearTimeout(timer);
+        window.clearTimeout(timer);
         resolve();
       };
       socket.onerror = () => {
         if (opened) return;
-        clearTimeout(timer);
+        window.clearTimeout(timer);
         reject(new RelayError("relay unreachable", url));
       };
       socket.onclose = (evt) => {
         if (this.socket === socket) this.socket = null;
         if (!opened) {
-          clearTimeout(timer);
+          window.clearTimeout(timer);
           reject(new RelayError("relay refused connection", `code ${evt.code}`));
           return;
         }
@@ -119,12 +119,12 @@ export class PiRelay {
   request(record: Record<string, unknown>, timeoutMs = 30_000): Promise<PiRecord> {
     const id = `q${++this.seq}`;
     return new Promise<PiRecord>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = window.setTimeout(() => {
         this.waiting.delete(id);
         reject(new RelayError("relay request timeout", String(record.type)));
       }, timeoutMs);
       this.waiting.set(id, (response) => {
-        clearTimeout(timer);
+        window.clearTimeout(timer);
         resolve(response);
       });
       this.send({ ...record, id });
@@ -142,7 +142,7 @@ export class PiRelay {
       }
       if (signal.aborted) return;
       if (Date.now() > deadline) throw new RelayError("relay went quiet");
-      await new Promise((r) => setTimeout(r, POLL_MS));
+      await new Promise((r) => window.setTimeout(r, POLL_MS));
     }
   }
 

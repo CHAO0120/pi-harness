@@ -54,7 +54,7 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h3", { text: "连接（pi-relay）" });
+    new Setting(containerEl).setName("连接（pi-relay）").setHeading();
 
     new Setting(containerEl)
       .setName("relay 地址")
@@ -131,7 +131,7 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
         }),
       );
 
-    containerEl.createEl("h3", { text: "默认值" });
+    new Setting(containerEl).setName("默认值").setHeading();
 
     new Setting(containerEl)
       .setName("初始模型")
@@ -156,7 +156,7 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: "上下文" });
+    new Setting(containerEl).setName("上下文").setHeading();
 
     const toggles: [keyof PiHarnessSettings, string, string][] = [
       ["includePath", "附带当前笔记路径", "提问时告诉 pi 你正在看哪篇笔记（默认开）。"],
@@ -185,11 +185,11 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
         }),
       );
 
-    containerEl.createEl("h3", { text: "诊断" });
+    new Setting(containerEl).setName("诊断").setHeading();
 
     new Setting(containerEl)
       .setName("写调试日志")
-      .setDesc("把面板与 relay 的往返写进 .obsidian/plugins/pi-harness/debug.log，排查问题时打开。")
+      .setDesc(`把面板与 relay 的往返写进 ${this.app.vault.configDir}/plugins/pi-harness/debug.log，排查问题时打开。`)
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.debug).onChange(async (value) => {
           this.plugin.settings.debug = value;

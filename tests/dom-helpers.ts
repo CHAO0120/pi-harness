@@ -97,6 +97,14 @@ export function installDomHelpers(): void {
     detach(this: El): void {
       this.remove();
     },
+    // Obsidian's own element helpers; the panel uses setCssStyles to size the
+    // composer, so the mock needs it to keep the transcript tests honest.
+    setCssStyles(this: El, styles: Record<string, string>): void {
+      Object.assign(this.style, styles);
+    },
+    setCssProps(this: El, props: Record<string, string>): void {
+      for (const [key, value] of Object.entries(props)) this.style.setProperty(key, value);
+    },
     show(this: El): void {
       this.style.display = "";
     },

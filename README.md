@@ -84,7 +84,7 @@ Neither half is useful alone: the plugin cannot spawn a process on mobile, and t
 
 - **Termux with pi** installed (`pi` on `PATH`) — the agent runs there, where it can spawn processes and use skills, MCP servers and your vault index.
 - **The relay running**: `~/pi-relay` from this repo, started with `sh ~/pi-relay/start.sh`.
-- Obsidian 1.5.0 or later. Mobile is supported; see [relay/README.en.md](relay/README.en.md) for the Termux side.
+- Obsidian 1.7.2 or later. Mobile is supported; see [relay/README.en.md](relay/README.en.md) for the Termux side.
 
 ## Disclosures
 

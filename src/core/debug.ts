@@ -5,7 +5,8 @@
  */
 import type { App } from "obsidian";
 
-const LOG_PATH = ".obsidian/plugins/pi-harness/debug.log";
+/** The config folder is user-configurable, so never assume `.obsidian`. */
+const logPath = (app: App): string => `${app.vault.configDir}/plugins/pi-harness/debug.log`;
 
 let target: App | null = null;
 let enabled = true;
@@ -44,5 +45,5 @@ export function debug(...parts: unknown[]): void {
     })
     .join(" ");
   sink?.(body);
-  void target.vault.adapter.append(LOG_PATH, `${stamp} ${body}\n`).catch(() => undefined);
+  void target.vault.adapter.append(logPath(target), `${stamp} ${body}\n`).catch(() => undefined);
 }

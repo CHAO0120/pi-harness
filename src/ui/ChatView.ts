@@ -180,7 +180,7 @@ export class PiHarnessView extends ItemView {
     // Android soft keyboards often deliver the return key as a line break
     // without a keydown, so send from there too.
     this.inputEl.addEventListener("beforeinput", (evt) => {
-      const input = evt as InputEvent;
+      const input = evt;
       if (input.inputType !== "insertLineBreak" && input.inputType !== "insertParagraph") return;
       const shiftHeld = this.shiftHeld;
       this.shiftHeld = false;
@@ -402,8 +402,8 @@ export class PiHarnessView extends ItemView {
   // ------------- sending -------------
 
   private autoResize(): void {
-    this.inputEl.style.height = "auto";
-    this.inputEl.style.height = `${Math.min(this.inputEl.scrollHeight, 150)}px`;
+    this.inputEl.setCssStyles({ height: "auto" });
+    this.inputEl.setCssStyles({ height: `${Math.min(this.inputEl.scrollHeight, 150)}px` });
   }
 
   private setStreaming(streaming: boolean): void {
