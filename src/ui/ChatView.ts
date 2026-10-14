@@ -171,7 +171,7 @@ export class PiHarnessView extends ItemView {
       if (evt.key !== "Enter") return;
       // Never fire while an IME is composing: committing a Chinese candidate
       // with Enter must not send half a sentence.
-      if (evt.isComposing || evt.keyCode === 229) return;
+      if (evt.isComposing) return;
       if (evt.shiftKey || evt.altKey) return; // Shift+Enter = newline
       if (!this.plugin.settings.enterToSend) return;
       evt.preventDefault();

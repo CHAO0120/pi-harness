@@ -194,7 +194,6 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
-  flex: 0 1 auto;
   padding: 6px;
   border: none;
   background: transparent;

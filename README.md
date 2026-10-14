@@ -92,6 +92,7 @@ Required by the Obsidian community directory, and worth knowing before you insta
 
 - **Network use.** The plugin opens a WebSocket to the relay address in its settings — `ws://127.0.0.1:8346` by default, i.e. your own device. It contacts no external service, and sends nothing anywhere else.
 - **Access outside the vault.** Files you pick from the phone with 📎 are copied **into** the vault (`50-附件/pi-harness上传/` by default) so the agent can read them; the plugin itself touches no path outside the vault. The relay and the agent, however, run outside Obsidian with the working directory you configure, and the agent may read and write files there when you ask it to.
+- **Clipboard.** The copy button on an answer writes that answer to the system clipboard, and nothing else. The plugin never reads the clipboard.
 - **No telemetry, no self-update, no ads.** The plugin contains no analytics and never updates itself or its dependencies. `data.json` holds your settings, including the relay token in plain text.
 - **The agent is not sandboxed by the plugin.** Anything you ask pi to do, it does with the privileges of your Termux user.
 

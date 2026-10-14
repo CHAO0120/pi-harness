@@ -1,6 +1,6 @@
 {
   "name": "pi-harness",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Run your local pi agent inside Obsidian (mobile included) through the Termux WebSocket relay.",
   "main": "main.js",
   "scripts": {
