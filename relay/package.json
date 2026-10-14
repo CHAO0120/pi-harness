@@ -1,0 +1,14 @@
+{
+  "name": "pi-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WebSocket relay that lets mobile clients (an Obsidian plugin) drive a local pi agent over pi RPC",
+  "main": "pi-relay.mjs",
+  "scripts": {
+    "start": "node pi-relay.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

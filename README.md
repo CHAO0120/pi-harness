@@ -50,3 +50,13 @@ PI_RELAY_E2E=1 npx jest tests/e2e.test.ts   # live relay + a real pi turn
 ```
 
 The e2e suite's second case is the load-bearing one: it feeds a `buildPrompt` preamble and asserts pi answers with the note path it was told, which is exactly the behaviour this plugin exists to provide.
+
+## Repo layout
+
+| Path | What it is |
+| --- | --- |
+| `src/`, `manifest.json`, `esbuild.config.mjs` | The Obsidian plugin (build with `npm run build` → `main.js` + `styles.css`) |
+| `relay/` | The Termux-side WebSocket relay that bridges Obsidian to `pi --mode rpc` on port 8346 (source mirror; its `token` file and logs are intentionally not tracked) |
+| `tests/` | Jest suites, including a mock of the Obsidian API |
+
+Neither half is useful alone: the plugin cannot spawn a process on mobile, and the relay has no UI. Install the relay in Termux, then load the built plugin into the vault.
