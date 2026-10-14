@@ -15,7 +15,7 @@ export class Component {
 }
 
 export class ItemView extends Component {
-  contentEl: HTMLElement = createDiv();
+  contentEl: HTMLElement = document.createElement("div");
   containerEl: HTMLElement = this.contentEl;
   app: unknown = null;
   icon = "";
@@ -68,7 +68,7 @@ export class Plugin extends Component {
     Object.assign(this.manifest, manifest as object);
   }
   addRibbonIcon(_icon: string, _title: string, _cb: () => void): HTMLElement {
-    return createDiv();
+    return document.createElement("div");
   }
   addCommand(): void {}
   addSettingTab(): void {}
@@ -80,7 +80,7 @@ export class Plugin extends Component {
 }
 
 export class PluginSettingTab {
-  containerEl: HTMLElement = createDiv();
+  containerEl: HTMLElement = document.createElement("div");
   constructor(
     public app: unknown,
     public plugin: unknown,
@@ -108,7 +108,7 @@ export class Setting implements Chainable {
     return this;
   }
   addText(cb: (text: unknown) => unknown): Chainable {
-    cb({ inputEl: createEl("input"), setValue: () => text(), onChange: () => text() });
+    cb({ inputEl: document.createElement("input"), setValue: () => text(), onChange: () => text() });
     return this;
   }
   addTextArea(cb: (text: unknown) => unknown): Chainable {
@@ -132,10 +132,10 @@ export class Setting implements Chainable {
   }
 }
 
-const text = (): Chainable => new Setting(createDiv());
-const toggle = (): Chainable => new Setting(createDiv());
-const button = (): Chainable => new Setting(createDiv());
-const dropdown = (): Chainable => new Setting(createDiv());
+const text = (): Chainable => new Setting(document.createElement("div"));
+const toggle = (): Chainable => new Setting(document.createElement("div"));
+const button = (): Chainable => new Setting(document.createElement("div"));
+const dropdown = (): Chainable => new Setting(document.createElement("div"));
 
 export class Menu {
   items: { title: string; checked: boolean }[] = [];

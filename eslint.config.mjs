@@ -32,6 +32,9 @@ export default defineConfig([
     rules: {
       "obsidianmd/no-nodejs-modules": "off",
       "obsidianmd/hardcoded-config-path": "off",
+      // These run against a plain DOM, not inside Obsidian: --fix rewriting
+      // document.createElement into createDiv() broke the mock outright.
+      "obsidianmd/prefer-create-el": "off",
       "obsidianmd/rule-custom-message": "off",
     },
     languageOptions: { globals: { module: "readonly", require: "readonly", __dirname: "readonly", process: "readonly" } },
@@ -52,6 +55,9 @@ export default defineConfig([
       // and the strict typing rules do not apply to them.
       "obsidianmd/no-nodejs-modules": "off",
       "obsidianmd/hardcoded-config-path": "off",
+      // These run against a plain DOM, not inside Obsidian: --fix rewriting
+      // document.createElement into createDiv() broke the mock outright.
+      "obsidianmd/prefer-create-el": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",
       "@typescript-eslint/no-unsafe-argument": "off",
