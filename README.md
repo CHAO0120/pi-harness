@@ -9,7 +9,20 @@ Obsidian (this plugin)                     Termux
         └────────────── JSONL records over WebSocket ◄────────────┘
 ```
 
-Requires `pi-relay` running on the same device (`~/pi-relay/`; `sh ~/pi-relay/start.sh`).
+Requires `pi-relay` running on the same device — sources in [`relay/`](relay/); start it with `sh ~/pi-relay/start.sh` (see [relay/README.md](relay/README.md) for a first-time setup, including the token file).
+
+## Install
+
+```sh
+# 1. relay, in Termux
+cp -r relay ~/pi-relay && cd ~/pi-relay && npm install && sh start.sh
+
+# 2. plugin
+npm install && npm run build
+OBSIDIAN_VAULT="/storage/emulated/0/Obsidian Vault" npm run build   # builds and copies into the vault
+```
+
+Then enable **Pi Harness** in Obsidian → Settings → Community plugins (restart the plugin after a rebuild), open the panel from the ribbon, and make sure the relay URL and token in the plugin settings match `~/pi-relay/token`.
 
 ## Why a plugin of its own
 
@@ -21,6 +34,7 @@ A mobile Obsidian plugin cannot spawn a process, so the agent has to live outsid
 ## What it does
 
 - **Streaming chat panel** in the right sidebar (ribbon icon / command palette), markdown rendered with Obsidian's own renderer.
+- **Attachments** — the 📎 button attaches images (sent to pi as native image content, base64) and files. Vault files are referenced by path; files picked from the phone are copied into the vault first, so the agent reads them with its own tools. Staged as removable chips above the composer.
 - **Active-note awareness** — the note the user came from (and their selection) is attached to every message; what gets attached is configured in settings (note path / selection / full body). The user's own bubble records what was attached.
 - **Write back into the note** — 「写入当前笔记」 replaces the selection if there is one, otherwise inserts at the cursor.
 - **Tool cards** — collapsed by default, expandable, with the arguments, the output, error styling, and an **打开** button when the call names a vault path.
