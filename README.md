@@ -73,6 +73,9 @@ The e2e suite's second case is the load-bearing one: it feeds a `buildPrompt` pr
 | --- | --- |
 | `src/`, `manifest.json`, `esbuild.config.mjs` | The Obsidian plugin (build with `npm run build` → `main.js` + `styles.css`) |
 | `relay/` | The Termux-side WebSocket relay that bridges Obsidian to `pi --mode rpc` on port 8346 (source mirror; its `token` file and logs are intentionally not tracked) |
+| `scripts/sync-relay.sh` | Mirrors the running `~/pi-relay` into `relay/` and reports drift (`--check` changes nothing) |
 | `tests/` | Jest suites, including a mock of the Obsidian API |
+
+The relay that actually runs lives in `~/pi-relay`; `relay/` is a mirror, so after touching the relay run `sh scripts/sync-relay.sh`, review the diff, and commit it. The script also names any file it does not know about rather than dropping it silently.
 
 Neither half is useful alone: the plugin cannot spawn a process on mobile, and the relay has no UI. Install the relay in Termux, then load the built plugin into the vault.

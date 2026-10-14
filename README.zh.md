@@ -74,5 +74,8 @@ e2e 套件里的第二个用例是承重的那一个：它喂入 `buildPrompt` �
 | `src/`、`manifest.json`、`esbuild.config.mjs` | Obsidian 插件本体（`npm run build` 产出 `main.js` + `styles.css`） |
 | `relay/` | Termux 侧的 WebSocket 中继，负责把 Obsidian 接到 `pi --mode rpc`（端口 8346）。这是源码镜像；其 `token` 文件与日志**故意不入库** |
 | `tests/` | Jest 测试，含一套 Obsidian API 的 mock |
+| `scripts/sync-relay.sh` | 把正在运行的 `~/pi-relay` 同步进 `relay/` 并报告漂移（`--check` 只查不改） |
+
+实际运行的中继在 `~/pi-relay`，`relay/` 只是镜像 —— 所以改完中继要跑一次 `sh scripts/sync-relay.sh`，review 差异后再提交。脚本还会把"它不认识的文件"列出来，而不是静默漏掉。
 
 两半缺一不可：插件在移动端无法 spawn 进程，中继本身又没有界面。先在 Termux 装好中继，再把构建产物载入 vault。
