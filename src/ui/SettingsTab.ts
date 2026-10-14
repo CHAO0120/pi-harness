@@ -91,18 +91,8 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
             action: (el) => {
               const button = el.createEl("button", { text: "检查" });
               button.addClass("mod-cta");
-              button.addEventListener("click", async () => {
-                button.disabled = true;
-                try {
-                  await refreshStatus(this.plugin.relaySettings());
-                  const info = status();
-                  new Notice(info?.label ? `已连接，当前模型：${info.label}` : "已连接");
-                } catch (error) {
-                  new Notice(`连接失败：${error instanceof Error ? error.message : String(error)}`);
-                } finally {
-                  button.disabled = false;
-                }
-              });
+              // void: the listener must return void, the async work is its own.
+              button.addEventListener("click", () => void this.checkConnection(button));
             },
           },
         ],
@@ -170,6 +160,20 @@ export class PiHarnessSettingsTab extends PluginSettingTab {
   /** Read by the framework for every `control` definition it renders. */
   getControlValue(key: string): unknown {
     return this.plugin.settings[key as keyof PiHarnessSettings];
+  }
+
+  /** The 检查连接 button: one connection attempt, reported through a Notice. */
+  private async checkConnection(button: HTMLButtonElement): Promise<void> {
+    button.disabled = true;
+    try {
+      await refreshStatus(this.plugin.relaySettings());
+      const info = status();
+      new Notice(info?.label ? `已连接，当前模型：${info.label}` : "已连接");
+    } catch (error) {
+      new Notice(`连接失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async setControlValue(key: string, value: unknown): Promise<void> {
